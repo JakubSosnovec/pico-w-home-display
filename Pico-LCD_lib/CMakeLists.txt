@@ -1,0 +1,5 @@
+add_subdirectory(lib/config)
+add_subdirectory(lib/lcd)
+add_subdirectory(lib/font)
+add_subdirectory(lib/fatfs)
+add_subdirectory(lib/sdcard)
