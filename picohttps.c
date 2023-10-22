@@ -22,6 +22,13 @@
 // Pico HTTPS request example
 #include "picohttps.h"              // Options, macros, forward declarations
 
+// LCD SDK
+#include "LCD_Driver.h"
+#include "LCD_Touch.h"
+#include "LCD_GUI.h"
+#include "LCD_Bmp.h"
+#include "DEV_Config.h"
+
 #define TLS_ROOT_CERT "-----BEGIN CERTIFICATE-----\n\
 MIIFazCCA1OgAwIBAgIRAIIQz7DSQONZRGPgu2OCiwAwDQYJKoZIhvcNAQELBQAw\n\
 TzELMAkGA1UEBhMCVVMxKTAnBgNVBAoTIEludGVybmV0IFNlY3VyaXR5IFJlc2Vh\n\
@@ -54,9 +61,14 @@ mRGunUHBcnWEvgJBQl9nJEiU0Zsnvgc/ubhPgXRR4Xq37Z0j4r7g1SgEEzwxA57d\n\
 emyPxgcYxn/eR44/KJ4EBs+lVDR3veyJm+kXQ99b21/+jh5Xos1AnX5iItreGCc=\n\
 -----END CERTIFICATE-----\n"
 
-void connect_and_send(ip_addr_t ipaddr, char* char_ipaddr);
+void send(ip_addr_t ipaddr, char* char_ipaddr, struct altcp_pcb* pcb);
+void init_lcd(void);
 
 /* Main ***********************************************************************/
+
+#define REQ_SIZE 2048
+char* weather_info;
+int weather_info_size;
 
 void main(void){
     // Initialise standard I/O over USB
@@ -71,13 +83,13 @@ void main(void){
     printf("Initialized CYW43\n");
 
     // Connect to wireless network
-    printf("Connecting to %s\n", PICOHTTPS_WIFI_SSID);
+    printf("Connecting to %s\n", WIFI_SSID);
     if(!connect_to_network()){
-        printf("Failed to connect to %s\n", PICOHTTPS_WIFI_SSID);
+        printf("Failed to connect to %s\n", WIFI_SSID);
         cyw43_arch_deinit();            // Deinit Pico W wireless hardware
         return;
     }
-    printf("Connected to %s\n", PICOHTTPS_WIFI_SSID);
+    printf("Connected to %s\n", WIFI_SSID);
 
     // Resolve server hostname
     ip_addr_t ipaddr;
@@ -94,15 +106,6 @@ void main(void){
     cyw43_arch_lwip_end();
     printf("Resolved %s (%s)\n", PICOHTTPS_HOSTNAME, char_ipaddr);
 
-    connect_and_send(ipaddr, char_ipaddr);
-
-    // Return
-    printf("Exiting\n");
-    return;
-    //printf("Exited 😉 \n");
-}
-
-void connect_and_send(ip_addr_t ipaddr, char* char_ipaddr) {
     // Establish TCP + TLS connection with server
     struct altcp_pcb* pcb = NULL;
     printf("Connecting to https://%s:%d\n", char_ipaddr, LWIP_IANA_PORT_HTTPS);
@@ -114,6 +117,50 @@ void connect_and_send(ip_addr_t ipaddr, char* char_ipaddr) {
     }
     printf("Connected to https://%s:%d\n", char_ipaddr, LWIP_IANA_PORT_HTTPS);
 
+
+    init_lcd();
+
+    // We update every 10 seconds
+    weather_info = malloc(REQ_SIZE);
+    while(true)
+    {
+        weather_info_size = 0;
+        send(ipaddr, char_ipaddr, pcb);
+
+        // Await HTTP response
+        printf("Awaiting response\n");
+        while(weather_info_size == 0)
+        {
+            sleep_ms(PICOHTTPS_HTTP_RESPONSE_POLL_INTERVAL);
+        }
+        printf("Awaited response\n");
+
+        // Render response
+        // TODO
+
+        sleep_ms(10000);
+    }
+
+    // Return
+    printf("Exiting\n");
+    return;
+    //printf("Exited 😉 \n");
+}
+
+void init_lcd(void) {
+	DEV_GPIO_Init();
+	spi_init(SPI_PORT,4000000);
+	gpio_set_function(LCD_CLK_PIN,GPIO_FUNC_SPI);
+	gpio_set_function(LCD_MOSI_PIN,GPIO_FUNC_SPI);
+	gpio_set_function(LCD_MISO_PIN,GPIO_FUNC_SPI);
+
+	LCD_SCAN_DIR  lcd_scan_dir = SCAN_DIR_DFT;
+	LCD_Init(lcd_scan_dir,800);
+	TP_Init(lcd_scan_dir);
+	GUI_Show();
+}
+
+void send(ip_addr_t ipaddr, char* char_ipaddr, struct altcp_pcb* pcb) {
     // Send HTTP request to server
     printf("Sending request\n");
     if(!send_request(pcb)){
@@ -130,12 +177,6 @@ void connect_and_send(ip_addr_t ipaddr, char* char_ipaddr) {
         return;
     }
     printf("Request sent\n");
-
-    // Await HTTP response
-    printf("Awaiting response\n");
-    sleep_ms(5000);
-    printf("Awaited response\n");
-
 }
 
 
@@ -151,7 +192,7 @@ bool init_stdio(void){
 
 // Initialise Pico W wireless hardware
 bool init_cyw43(void){
-    return !((bool)cyw43_arch_init_with_country(PICOHTTPS_INIT_CYW43_COUNTRY));
+    return !((bool)cyw43_arch_init_with_country(CYW43_COUNTRY_CZECH_REPUBLIC));
 }
 
 // Connect to wireless network
@@ -159,8 +200,8 @@ bool connect_to_network(void){
     cyw43_arch_enable_sta_mode();
     return !(
         (bool)cyw43_arch_wifi_connect_timeout_ms(
-            PICOHTTPS_WIFI_SSID,
-            PICOHTTPS_WIFI_PASSWORD,
+            WIFI_SSID,
+            WIFI_PASSWORD,
             CYW43_AUTH_WPA2_AES_PSK,
             PICOHTTPS_WIFI_TIMEOUT
         )
@@ -475,6 +516,8 @@ lwip_err_t callback_altcp_recv(
                 altcp_recved(pcb, head->tot_len);
 
             }
+            memcpy(weather_info, buf->payload, buf->tot_len);
+            weather_info_size = buf->tot_len;
 
             // …fall-through…
 

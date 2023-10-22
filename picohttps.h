@@ -12,21 +12,6 @@
 
 
 
-/* Options ********************************************************************/
-
-// Wireless region
-//
-//  `country` argument to cyw43_arch_init_with_country().
-//
-//  For best performance, set to local region.
-//
-//  https://www.raspberrypi.com/documentation/pico-sdk/networking.html#CYW43_COUNTRY_
-//
-#define PICOHTTPS_INIT_CYW43_COUNTRY                CYW43_COUNTRY_CZECH_REPUBLIC
-
-// Wireless network SSID
-#define PICOHTTPS_WIFI_SSID                         WIFI_SSID
-
 // Wireless network connection timeout
 //
 //  `timeout` argument to cyw43_arch_wifi_connect_timeout_ms().
@@ -35,20 +20,11 @@
 //
 #define PICOHTTPS_WIFI_TIMEOUT                      20000           // ms
 
-// Wireless network password
-//
-//  N.b. _Strongly_ recommend setting this from the environment rather than
-//  here. Environment values will have greater precedence. See CMakeLists.txt.
-//
-#ifndef PICOHTTPS_WIFI_PASSWORD
-#define PICOHTTPS_WIFI_PASSWORD                     WIFI_PASSWORD
-#endif // PICOHTTPS_WIFI_PASSWORD
-
 // HTTP server hostname
 // Home coordinates
 #define PICOHTTPS_HOSTNAME                          "api.open-meteo.com" 
 
-#define PICOHTTPS_QUERY                             "/v1/forecast?latitude=50.07&longitude=14.42&current_weather=true&hourly=temperature_2m"
+#define PICOHTTPS_QUERY                             "/v1/forecast?latitude=50.07&longitude=14.42&current_weather=true"
 
 // DNS response polling interval
 //

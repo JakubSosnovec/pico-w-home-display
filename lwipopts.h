@@ -230,7 +230,7 @@
 /* Debug options **************************************************************/
 
 // Enable debugging
-#define LWIP_DEBUG                  1
+#define LWIP_DEBUG                  LWIP_DBG_ON
 #define ALTCP_MBEDTLS_DEBUG         LWIP_DBG_ON
 #define ALTCP_MBEDTLS_LIB_DEBUG     LWIP_DBG_ON
 
