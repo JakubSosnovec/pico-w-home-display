@@ -63,6 +63,8 @@ emyPxgcYxn/eR44/KJ4EBs+lVDR3veyJm+kXQ99b21/+jh5Xos1AnX5iItreGCc=\n\
 
 void send(ip_addr_t ipaddr, char* char_ipaddr, struct altcp_pcb* pcb);
 void init_lcd(void);
+void render_temperature(void);
+void render_time(void);
 
 /* Main ***********************************************************************/
 
@@ -134,9 +136,8 @@ void main(void){
             sleep_ms(PICOHTTPS_HTTP_RESPONSE_POLL_INTERVAL);
         }
         printf("Awaited response\n");
-
-        // Render response
-        // TODO
+        render_temperature();
+        render_time();
 
         sleep_ms(10000);
     }
@@ -145,6 +146,55 @@ void main(void){
     printf("Exiting\n");
     return;
     //printf("Exited 😉 \n");
+}
+
+void render_time(void)
+{
+    const char* date_value;
+    const char* date_tag = "Date: ";
+    date_value = strstr(weather_info, date_tag);
+    assert(date_value);
+    date_value += strlen(date_tag);
+
+    char date_no_time[] = "Sun, 22 Oct 2023";
+    char date_time[] = "16:32:52 GMT";
+    int date_no_time_len = strlen(date_no_time);
+    int date_time_len = strlen(date_time);
+    strncpy(date_no_time, date_value, date_no_time_len);
+    strncpy(date_time, date_value + date_no_time_len + 1, date_time_len);
+
+    // We first need to reset the LCD in the changed region
+    GUI_DrawRectangle(20, 80, 480, 110 + 24, WHITE, DRAW_FULL, DOT_PIXEL_DFT);
+    GUI_DisString_EN(20, 80, date_no_time, &Font24, LCD_BACKGROUND, BLACK);
+    GUI_DisString_EN(20, 110, date_time, &Font24, LCD_BACKGROUND, BLACK);
+}
+
+void render_temperature(void)
+{
+    const char* temperature_json_unit;
+    const char* temperature_json_value;
+    const char* temperature_json_tag = "\"temperature\":";
+    temperature_json_unit = strstr(weather_info, temperature_json_tag); // First occurence is the units
+    assert(temperature_json_unit);
+    temperature_json_unit += strlen(temperature_json_tag) + 3; // +3 for the "°
+    temperature_json_value = strstr(temperature_json_unit, temperature_json_tag); // Second occurence is the actual value
+    temperature_json_value += strlen(temperature_json_tag);
+    assert(temperature_json_unit);
+    assert(temperature_json_value);
+
+    char temperature_unit[2];
+    char temperature_value[5];
+    strncpy(temperature_unit, temperature_json_unit, 1);
+    temperature_unit[1] = '\0';
+    strncpy(temperature_value, temperature_json_value, 4);
+    temperature_value[4] = '\0';
+
+    char temperature_string[] = "Temperature now: XXXX C";
+    sprintf(temperature_string + strlen("Temperature now: "), "%s %s", temperature_value, temperature_unit);
+
+    // We first need to reset the LCD in the changed region
+    GUI_DrawRectangle(20, 50, 480, 50 + 24, WHITE, DRAW_FULL, DOT_PIXEL_DFT);
+    GUI_DisString_EN(20, 50, temperature_string, &Font24, LCD_BACKGROUND, BLUE);
 }
 
 void init_lcd(void) {
@@ -157,7 +207,8 @@ void init_lcd(void) {
 	LCD_SCAN_DIR  lcd_scan_dir = SCAN_DIR_DFT;
 	LCD_Init(lcd_scan_dir,800);
 	TP_Init(lcd_scan_dir);
-	GUI_Show();
+    GUI_Clear(WHITE);
+    GUI_DisString_EN(20, 20, "SOS home assistant", &Font24, LCD_BACKGROUND, RED);
 }
 
 void send(ip_addr_t ipaddr, char* char_ipaddr, struct altcp_pcb* pcb) {
