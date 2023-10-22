@@ -68,7 +68,7 @@ void render_time(void);
 
 /* Main ***********************************************************************/
 
-#define REQ_SIZE 2048
+#define RESPONSE_SIZE 4096
 char* weather_info;
 int weather_info_size;
 
@@ -123,7 +123,7 @@ void main(void){
     init_lcd();
 
     // We update every 10 seconds
-    weather_info = malloc(REQ_SIZE);
+    weather_info = malloc(RESPONSE_SIZE);
     while(true)
     {
         weather_info_size = 0;
@@ -164,37 +164,46 @@ void render_time(void)
     strncpy(date_time, date_value + date_no_time_len + 1, date_time_len);
 
     // We first need to reset the LCD in the changed region
-    GUI_DrawRectangle(20, 80, 480, 110 + 24, WHITE, DRAW_FULL, DOT_PIXEL_DFT);
-    GUI_DisString_EN(20, 80, date_no_time, &Font24, LCD_BACKGROUND, BLACK);
-    GUI_DisString_EN(20, 110, date_time, &Font24, LCD_BACKGROUND, BLACK);
+    GUI_DrawRectangle(20, 110, 480, 140 + 24, WHITE, DRAW_FULL, DOT_PIXEL_DFT);
+    GUI_DisString_EN(20, 110, date_no_time, &Font24, LCD_BACKGROUND, BLACK);
+    GUI_DisString_EN(20, 140, date_time, &Font24, LCD_BACKGROUND, BLACK);
 }
 
 void render_temperature(void)
 {
-    const char* temperature_json_unit;
     const char* temperature_json_value;
+    const char* max_json_value;
     const char* temperature_json_tag = "\"temperature\":";
-    temperature_json_unit = strstr(weather_info, temperature_json_tag); // First occurence is the units
-    assert(temperature_json_unit);
-    temperature_json_unit += strlen(temperature_json_tag) + 3; // +3 for the "°
-    temperature_json_value = strstr(temperature_json_unit, temperature_json_tag); // Second occurence is the actual value
-    temperature_json_value += strlen(temperature_json_tag);
-    assert(temperature_json_unit);
-    assert(temperature_json_value);
+    const char* max_json_tag = "\"temperature_2m_max\":";
 
-    char temperature_unit[2];
+    temperature_json_value = strstr(weather_info, temperature_json_tag); // First occurence is the units
+    assert(temperature_json_value);
+    temperature_json_value = strstr(temperature_json_value + 1, temperature_json_tag); // Second occurence is the actual value
+    temperature_json_value += strlen(temperature_json_tag);
+
+    max_json_value = strstr(weather_info, max_json_tag); // First occurence is the units
+    assert(max_json_value);
+    max_json_value = strstr(max_json_value + 1, max_json_tag); // Second occurence is the actual value
+    max_json_value += strlen(max_json_tag) + 1; // +1 for the [
+
     char temperature_value[5];
-    strncpy(temperature_unit, temperature_json_unit, 1);
-    temperature_unit[1] = '\0';
     strncpy(temperature_value, temperature_json_value, 4);
     temperature_value[4] = '\0';
 
+    char max_value[5];
+    strncpy(max_value, max_json_value, 4);
+    max_value[4] = '\0';
+
     char temperature_string[] = "Temperature now: XXXX C";
-    sprintf(temperature_string + strlen("Temperature now: "), "%s %s", temperature_value, temperature_unit);
+    sprintf(temperature_string, "Temperature now: %s C", temperature_value);
+
+    char max_string[] = "Temperature max: XXXX C";
+    sprintf(max_string, "Temperature max: %s C", max_value);
 
     // We first need to reset the LCD in the changed region
-    GUI_DrawRectangle(20, 50, 480, 50 + 24, WHITE, DRAW_FULL, DOT_PIXEL_DFT);
+    GUI_DrawRectangle(20, 50, 480, 80 + 24, WHITE, DRAW_FULL, DOT_PIXEL_DFT);
     GUI_DisString_EN(20, 50, temperature_string, &Font24, LCD_BACKGROUND, BLUE);
+    GUI_DisString_EN(20, 80, max_string, &Font24, LCD_BACKGROUND, BLUE);
 }
 
 void init_lcd(void) {

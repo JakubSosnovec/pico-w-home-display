@@ -24,7 +24,7 @@
 // Home coordinates
 #define PICOHTTPS_HOSTNAME                          "api.open-meteo.com" 
 
-#define PICOHTTPS_QUERY                             "/v1/forecast?latitude=50.07&longitude=14.42&current_weather=true"
+#define PICOHTTPS_QUERY                             "/v1/forecast?latitude=50.07&longitude=14.42&current_weather=true&daily=temperature_2m_max&timezone=auto&forecast_days=1"
 
 // DNS response polling interval
 //
