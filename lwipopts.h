@@ -231,8 +231,8 @@
 
 // Enable debugging
 #define LWIP_DEBUG                  1
-#define MBEDTLS_DEBUG_C             1
 #define ALTCP_MBEDTLS_DEBUG         LWIP_DBG_ON
+#define ALTCP_MBEDTLS_LIB_DEBUG     LWIP_DBG_ON
 
 #define ETHARP_DEBUG                LWIP_DBG_OFF
 #define NETIF_DEBUG                 LWIP_DBG_OFF

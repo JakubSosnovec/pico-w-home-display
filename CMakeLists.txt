@@ -1,6 +1,7 @@
 cmake_minimum_required(VERSION 3.18)
 set(PICO_BOARD pico_w)
 set(PICO_SDK_FETCH_FROM_GIT on)
+set(CFLAGS "-I${PROJECT_SOURCE_DIR} -DMBEDTLS_CONFIG_FILE='<mbedtls_config.h>'") # Total hack, but taken from official TLS docs
 include(pico_sdk_import.cmake)
 
 project(weather_display C CXX ASM)
@@ -14,6 +15,9 @@ add_subdirectory(Pico-LCD_lib)
 
 add_executable(weather_display
         picohttps.c
+        picohttps.h
+        lwipopts.h
+        mbedtls_config.h
         )
 target_compile_definitions(weather_display PRIVATE
         WIFI_SSID=\"${WIFI_SSID}\"
