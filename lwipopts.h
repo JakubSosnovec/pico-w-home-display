@@ -14,138 +14,132 @@
 #ifndef _LWIPOPTS_EXAMPLE_COMMONH_H
 #define _LWIPOPTS_EXAMPLE_COMMONH_H
 
-/* System options *************************************************************/
+/* System options
+ * *************************************************************/
 
 // Run without OS
 //
 //  No OS on Pico W platform
 //
-#define NO_SYS                      1
+#define NO_SYS 1
 
-
-
-/* Memory options *************************************************************/
+/* Memory options
+ * *************************************************************/
 
 // Disable native C-library malloc
 //
 //  Incompatible with `pico_cyw43_arch_lwip_threadsafe_background`
 //
-#define MEM_LIBC_MALLOC             0
+#define MEM_LIBC_MALLOC 0
 
 // Byte alignment
-#define MEM_ALIGNMENT               4       // bytes
+#define MEM_ALIGNMENT 4 // bytes
 
 // Heap size
-#define MEM_SIZE                    4000    // bytes
+#define MEM_SIZE 4000 // bytes
 
-
-
-/* Memory pool options ********************************************************/
+/* Memory pool options
+ * ********************************************************/
 
 // Max queued ARP packets
-#define MEMP_NUM_ARP_QUEUE          10
+#define MEMP_NUM_ARP_QUEUE 10
 //
 // Max queued TCP segments
-#define MEMP_NUM_TCP_SEG            32
+#define MEMP_NUM_TCP_SEG 32
 
-
-
-/* ARP options ****************************************************************/
+/* ARP options
+ * ****************************************************************/
 
 // Enable ARP support
 //
 //  Required for IP layer of network stack
 //
-#define LWIP_ARP                    1
+#define LWIP_ARP 1
 
-
-
-/* ICMP options ***************************************************************/
+/* ICMP options
+ * ***************************************************************/
 
 // Enable ICMP support
 //
 //  Probably required for IP layer of network stack?
 //
-#define LWIP_ICMP                   1
+#define LWIP_ICMP 1
 
-
-
-/* IP options *****************************************************************/
+/* IP options
+ * *****************************************************************/
 
 // Enable IPv4 support
-#define LWIP_IPV4                   1
+#define LWIP_IPV4 1
 
-
-
-/* DHCP options ***************************************************************/
+/* DHCP options
+ * ***************************************************************/
 
 // Enable DHCP support
 //
 //  Required for connecting to wireless network
 //
-#define LWIP_DHCP                   1
+#define LWIP_DHCP 1
 
 // Disable address conflict detection
-#define LWIP_DHCP_DOES_ACD_CHECK    0
+#define LWIP_DHCP_DOES_ACD_CHECK 0
 
 // Disable ARP check
-#define DHCP_DOES_ARP_CHECK         0
+#define DHCP_DOES_ARP_CHECK 0
 
-/* DNS options ****************************************************************/
+/* DNS options
+ * ****************************************************************/
 
 // Enable DNS support
 //
 //  Required for hostname resolution
 //
-#define LWIP_DNS                    1
+#define LWIP_DNS 1
 
-
-
-/* UDP options ****************************************************************/
+/* UDP options
+ * ****************************************************************/
 
 // Enable UDP support
 //
 //  Probably required for DNS queries?
 //
-#define LWIP_UDP                    1
+#define LWIP_UDP 1
 
-
-
-/* TCP options ****************************************************************/
+/* TCP options
+ * ****************************************************************/
 
 // Enable TCP support
-#define LWIP_TCP                    1
+#define LWIP_TCP 1
 
 // Max segment size
-#define TCP_MSS                     1460
+#define TCP_MSS 1460
 
 // Window size
-#define TCP_WND                     16384
+#define TCP_WND 16384
 
 // Send buffer size
-#define TCP_SND_BUF                 (8 * TCP_MSS)
+#define TCP_SND_BUF (8 * TCP_MSS)
 
 // Send queue length
-#define TCP_SND_QUEUELEN            ((4 * (TCP_SND_BUF) + (TCP_MSS - 1)) / (TCP_MSS))
+#define TCP_SND_QUEUELEN ((4 * (TCP_SND_BUF) + (TCP_MSS - 1)) / (TCP_MSS))
 
 // TCP options
-#define LWIP_TCP_KEEPALIVE          1
+#define LWIP_TCP_KEEPALIVE 1
 
-
-/* ALTCP options **************************************************************/
+/* ALTCP options
+ * **************************************************************/
 
 // Enable ALTCP support
 //
 //  ALTCP is lwIP interface for TCP + X. In the case of the Pico HTTPS example,
 //  X should be TLS, as required for HTTPS.
 //
-#define LWIP_ALTCP                  1
+#define LWIP_ALTCP 1
 
 // Enable ALTCP-compatible TLS interface
 //
 //  i.e. Set X to TLS in ALTCP = TCP + X
 //
-#define LWIP_ALTCP_TLS              1
+#define LWIP_ALTCP_TLS 1
 
 // Enable ALTCP-compatible TLS interface
 //
@@ -153,115 +147,109 @@
 //  full MbedTLS distribution__, but rather simply provides an lwIP compatible
 //  interface to Mbed-TLS.
 //
-#define LWIP_ALTCP_TLS_MBEDTLS      1
+#define LWIP_ALTCP_TLS_MBEDTLS 1
 
-
-
-/* Mbed-TLS options ***********************************************************/
+/* Mbed-TLS options
+ * ***********************************************************/
 
 // Require TLS authentication (certificate)
 //
 //  Cause ignoring certificate errors leads to bad things…
 //
-#define ALTCP_MBEDTLS_AUTHMODE      MBEDTLS_SSL_VERIFY_REQUIRED
+#define ALTCP_MBEDTLS_AUTHMODE MBEDTLS_SSL_VERIFY_REQUIRED
 
-
-
-/* Network interface options **************************************************/
+/* Network interface options
+ * **************************************************/
 
 // Disable NETIF API support
 //
 //  Not needed. Sequential API, and therefore for platforms with OSes only.
 //
-#define LWIP_NETIF_API              0
+#define LWIP_NETIF_API 0
 
 // Set interface name from hostname
-#define LWIP_NETIF_HOSTNAME         1
+#define LWIP_NETIF_HOSTNAME 1
 
 // Enable callback on interface state change
-#define LWIP_NETIF_STATUS_CALLBACK  1
+#define LWIP_NETIF_STATUS_CALLBACK 1
 
 // Enable callback on link state change
-#define LWIP_NETIF_LINK_CALLBACK    1
+#define LWIP_NETIF_LINK_CALLBACK 1
 
 // Try to put all TX data in single pbuf
-#define LWIP_NETIF_TX_SINGLE_PBUF   1
+#define LWIP_NETIF_TX_SINGLE_PBUF 1
 
-
-
-/* Sequntial API options ******************************************************/
+/* Sequntial API options
+ * ******************************************************/
 
 // Disable socket support
 //
 //  Not needed. Sequential API, and therefore for platforms with OSes only.
 //
-#define LWIP_SOCKET                 0
+#define LWIP_SOCKET 0
 
 // Disable netconn support
 //
 //  Not needed. Sequential API, and therefore for platforms with OSes only.
 //
-#define LWIP_NETCONN                0
+#define LWIP_NETCONN 0
 
-
-
-/* Statistics options *********************************************************/
+/* Statistics options
+ * *********************************************************/
 
 // Enable statistics
-#define LWIP_STATS                  1
+#define LWIP_STATS 1
 
 // Enable statistics display function
-#define LWIP_STATS_DISPLAY          1
+#define LWIP_STATS_DISPLAY 1
 
 // Enable memory stats
-#define MEM_STATS                   1
+#define MEM_STATS 1
 
 // Disable system stats
-#define SYS_STATS                   0
+#define SYS_STATS 0
 
 // Disable memory pool stats
-#define MEMP_STATS                  0
+#define MEMP_STATS 0
 
 // Disable link stats
-#define LINK_STATS                  0
+#define LINK_STATS 0
 
-
-
-/* Debug options **************************************************************/
+/* Debug options
+ * **************************************************************/
 
 // Enable debugging
-#define LWIP_DEBUG                  LWIP_DBG_ON
-#define ALTCP_MBEDTLS_DEBUG         LWIP_DBG_ON
-#define ALTCP_MBEDTLS_LIB_DEBUG     LWIP_DBG_ON
+#define LWIP_DEBUG LWIP_DBG_ON
+#define ALTCP_MBEDTLS_DEBUG LWIP_DBG_ON
+#define ALTCP_MBEDTLS_LIB_DEBUG LWIP_DBG_ON
 
-#define ETHARP_DEBUG                LWIP_DBG_OFF
-#define NETIF_DEBUG                 LWIP_DBG_OFF
-#define PBUF_DEBUG                  LWIP_DBG_OFF
-#define API_LIB_DEBUG               LWIP_DBG_OFF
-#define API_MSG_DEBUG               LWIP_DBG_OFF
-#define SOCKETS_DEBUG               LWIP_DBG_OFF
-#define ICMP_DEBUG                  LWIP_DBG_OFF
-#define INET_DEBUG                  LWIP_DBG_OFF
-#define IP_DEBUG                    LWIP_DBG_OFF
-#define IP_REASS_DEBUG              LWIP_DBG_OFF
-#define RAW_DEBUG                   LWIP_DBG_OFF
-#define MEM_DEBUG                   LWIP_DBG_OFF
-#define MEMP_DEBUG                  LWIP_DBG_OFF
-#define SYS_DEBUG                   LWIP_DBG_OFF
-#define TCP_DEBUG                   LWIP_DBG_ON
-#define TCP_INPUT_DEBUG             LWIP_DBG_OFF
-#define TCP_OUTPUT_DEBUG            LWIP_DBG_OFF
-#define TCP_RTO_DEBUG               LWIP_DBG_OFF
-#define TCP_CWND_DEBUG              LWIP_DBG_OFF
-#define TCP_WND_DEBUG               LWIP_DBG_OFF
-#define TCP_FR_DEBUG                LWIP_DBG_OFF
-#define TCP_QLEN_DEBUG              LWIP_DBG_OFF
-#define TCP_RST_DEBUG               LWIP_DBG_OFF
-#define UDP_DEBUG                   LWIP_DBG_OFF
-#define TCPIP_DEBUG                 LWIP_DBG_ON
-#define PPP_DEBUG                   LWIP_DBG_OFF
-#define SLIP_DEBUG                  LWIP_DBG_OFF
-#define DHCP_DEBUG                  LWIP_DBG_OFF
-
+#define ETHARP_DEBUG LWIP_DBG_OFF
+#define NETIF_DEBUG LWIP_DBG_OFF
+#define PBUF_DEBUG LWIP_DBG_OFF
+#define API_LIB_DEBUG LWIP_DBG_OFF
+#define API_MSG_DEBUG LWIP_DBG_OFF
+#define SOCKETS_DEBUG LWIP_DBG_OFF
+#define ICMP_DEBUG LWIP_DBG_OFF
+#define INET_DEBUG LWIP_DBG_OFF
+#define IP_DEBUG LWIP_DBG_OFF
+#define IP_REASS_DEBUG LWIP_DBG_OFF
+#define RAW_DEBUG LWIP_DBG_OFF
+#define MEM_DEBUG LWIP_DBG_OFF
+#define MEMP_DEBUG LWIP_DBG_OFF
+#define SYS_DEBUG LWIP_DBG_OFF
+#define TCP_DEBUG LWIP_DBG_ON
+#define TCP_INPUT_DEBUG LWIP_DBG_OFF
+#define TCP_OUTPUT_DEBUG LWIP_DBG_OFF
+#define TCP_RTO_DEBUG LWIP_DBG_OFF
+#define TCP_CWND_DEBUG LWIP_DBG_OFF
+#define TCP_WND_DEBUG LWIP_DBG_OFF
+#define TCP_FR_DEBUG LWIP_DBG_OFF
+#define TCP_QLEN_DEBUG LWIP_DBG_OFF
+#define TCP_RST_DEBUG LWIP_DBG_OFF
+#define UDP_DEBUG LWIP_DBG_OFF
+#define TCPIP_DEBUG LWIP_DBG_ON
+#define PPP_DEBUG LWIP_DBG_OFF
+#define SLIP_DEBUG LWIP_DBG_OFF
+#define DHCP_DEBUG LWIP_DBG_OFF
 
 #endif //_LWIPOPTS_EXAMPLE_COMMONH_H
