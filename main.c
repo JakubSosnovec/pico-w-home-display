@@ -1,15 +1,3 @@
-/* Pico HTTPS request example *************************************************
- *                                                                            *
- *  An HTTPS client example for the Raspberry Pi Pico W                       *
- *                                                                            *
- *  A simple yet complete example C application which sends a single request  *
- *  to a web server over HTTPS and reads the resulting response.              *
- *                                                                            *
- ******************************************************************************/
-
-
-/* Includes *******************************************************************/
-
 // Pico SDK
 #include "pico/stdlib.h"            // Standard library
 #include "pico/cyw43_arch.h"        // Pico W wireless
@@ -19,8 +7,7 @@
 #include "lwip/altcp_tls.h"         // TCP + TLS (+ HTTP == HTTPS)
 #include "lwip/prot/iana.h"         // HTTPS port number
 
-// Pico HTTPS request example
-#include "picohttps.h"              // Options, macros, forward declarations
+#include "main.h"                   // Options, macros, forward declarations
 
 // LCD SDK
 #include "LCD_Driver.h"
@@ -96,9 +83,9 @@ void main(void){
     // Resolve server hostname
     ip_addr_t ipaddr;
     char* char_ipaddr;
-    printf("Resolving %s\n", PICOHTTPS_HOSTNAME);
+    printf("Resolving %s\n", HTTPS_HOSTNAME);
     if(!resolve_hostname(&ipaddr)){
-        printf("Failed to resolve %s\n", PICOHTTPS_HOSTNAME);
+        printf("Failed to resolve %s\n", HTTPS_HOSTNAME);
                                         // TODO: Disconnect from network
         cyw43_arch_deinit();            // Deinit Pico W wireless hardware
         return;
@@ -106,7 +93,7 @@ void main(void){
     cyw43_arch_lwip_begin();
     char_ipaddr = ipaddr_ntoa(&ipaddr);
     cyw43_arch_lwip_end();
-    printf("Resolved %s (%s)\n", PICOHTTPS_HOSTNAME, char_ipaddr);
+    printf("Resolved %s (%s)\n", HTTPS_HOSTNAME, char_ipaddr);
 
     // Establish TCP + TLS connection with server
     struct altcp_pcb* pcb = NULL;
@@ -133,7 +120,7 @@ void main(void){
         printf("Awaiting response\n");
         while(weather_info_size == 0)
         {
-            sleep_ms(PICOHTTPS_HTTP_RESPONSE_POLL_INTERVAL);
+            sleep_ms(HTTPS_HTTP_RESPONSE_POLL_INTERVAL);
         }
         printf("Awaited response\n");
         render_temperature();
@@ -263,7 +250,7 @@ bool connect_to_network(void){
             WIFI_SSID,
             WIFI_PASSWORD,
             CYW43_AUTH_WPA2_AES_PSK,
-            PICOHTTPS_WIFI_TIMEOUT
+            HTTPS_WIFI_TIMEOUT
         )
     );
 }
@@ -277,7 +264,7 @@ bool resolve_hostname(ip_addr_t* ipaddr){
     // Attempt resolution
     cyw43_arch_lwip_begin();
     lwip_err_t lwip_err = dns_gethostbyname(
-        PICOHTTPS_HOSTNAME,
+        HTTPS_HOSTNAME,
         ipaddr,
         callback_gethostbyname,
         ipaddr
@@ -291,7 +278,7 @@ bool resolve_hostname(ip_addr_t* ipaddr){
         //  query response.
         //
         while(ipaddr->addr == IPADDR_ANY)
-            sleep_ms(PICOHTTPS_RESOLVE_POLL_INTERVAL);
+            sleep_ms(HTTPS_RESOLVE_POLL_INTERVAL);
         if(ipaddr->addr != IPADDR_NONE)
             lwip_err = ERR_OK;
 
@@ -308,7 +295,7 @@ void altcp_free_pcb(struct altcp_pcb* pcb){
     lwip_err_t lwip_err = altcp_close(pcb);         // Frees PCB
     cyw43_arch_lwip_end();
     while(lwip_err != ERR_OK)
-        sleep_ms(PICOHTTPS_ALTCP_CONNECT_POLL_INTERVAL);
+        sleep_ms(HTTPS_ALTCP_CONNECT_POLL_INTERVAL);
         cyw43_arch_lwip_begin();
         lwip_err = altcp_close(pcb);                // Frees PCB
         cyw43_arch_lwip_end();
@@ -391,7 +378,7 @@ bool connect_to_host(ip_addr_t* ipaddr, struct altcp_pcb** pcb){
     altcp_poll(
         *pcb,
         callback_altcp_poll,
-        PICOHTTPS_ALTCP_IDLE_POLL_INTERVAL
+        HTTPS_ALTCP_IDLE_POLL_INTERVAL
     );
     cyw43_arch_lwip_end();
 
@@ -431,7 +418,7 @@ bool connect_to_host(ip_addr_t* ipaddr, struct altcp_pcb** pcb){
         //  callback_altcp_connect.
         //
         while(!(arg->connected))
-            sleep_ms(PICOHTTPS_ALTCP_CONNECT_POLL_INTERVAL);
+            sleep_ms(HTTPS_ALTCP_CONNECT_POLL_INTERVAL);
 
     } else {
 
@@ -450,7 +437,7 @@ bool connect_to_host(ip_addr_t* ipaddr, struct altcp_pcb** pcb){
 // Send HTTP request
 bool send_request(struct altcp_pcb* pcb){
 
-    const char request[] = PICOHTTPS_REQUEST;
+    const char request[] = HTTPS_REQUEST;
 
     // Check send buffer and queue length
     //
@@ -483,7 +470,7 @@ bool send_request(struct altcp_pcb* pcb){
             // Await acknowledgement
             while(
                 !((struct altcp_callback_arg*)(pcb->arg))->acknowledged
-            ) sleep_ms(PICOHTTPS_HTTP_RESPONSE_POLL_INTERVAL);
+            ) sleep_ms(HTTPS_HTTP_RESPONSE_POLL_INTERVAL);
             if(
                 ((struct altcp_callback_arg*)(pcb->arg))->acknowledged
                 != (LEN(request) - 1)

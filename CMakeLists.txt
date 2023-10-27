@@ -14,10 +14,7 @@ pico_sdk_init()
 add_subdirectory(Pico-LCD_lib)
 
 add_executable(weather_display
-        picohttps.c
-        picohttps.h
-        lwipopts.h
-        mbedtls_config.h
+        main.c
         )
 target_compile_definitions(weather_display PRIVATE
         WIFI_SSID=\"${WIFI_SSID}\"
