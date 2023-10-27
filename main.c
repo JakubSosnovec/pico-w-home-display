@@ -20,7 +20,6 @@
  * ***********************************************************************/
 
 void main(void) {
-    // Initialise standard I/O over USB
     init_stdio();
 
     printf("Initializing CYW43\n");
@@ -57,7 +56,6 @@ void main(void) {
         if (!connect_to_host(&ipaddr, &pcb, callback_arg)) {
             printf("Failed to connect to https://%s:%d\n", char_ipaddr,
                    LWIP_IANA_PORT_HTTPS);
-            // TODO: Disconnect from network
             return;
         }
         printf("Connected to https://%s:%d\n", char_ipaddr,
@@ -100,33 +98,45 @@ void render_time(const char *data) {
     assert(date_value);
     date_value += strlen(date_tag);
 
-    char date_no_time[] = "Sun, 22 Oct 2023";
-    char date_time[] = "16:32:52 GMT";
-    int date_no_time_len = strlen(date_no_time);
-    int date_time_len = strlen(date_time);
-    strncpy(date_no_time, date_value, date_no_time_len);
-    strncpy(date_time, date_value + date_no_time_len + 1, date_time_len);
+    char date_str[strlen("Sun, 22 Oct 2023") + 1];
+    char time_str[strlen("16:32:52 GMT") + 1];
+
+    // Total black magic to parse the text into date and time
+    unsigned i = 0;
+    unsigned spaces = 0;
+    for (; spaces <= 3; i++) {
+        if (date_value[i] == ' ')
+            spaces++;
+        date_str[i] = date_value[i];
+    }
+    date_str[i - 1] = '\0';
+    unsigned j = 0;
+    for (; date_value[i] != '\r'; i++, j++) {
+        time_str[j] = date_value[i];
+    }
+    time_str[j] = '\0';
 
     // We first need to reset the LCD in the changed region
     GUI_DrawRectangle(20, 110, 480, 140 + 24, WHITE, DRAW_FULL, DOT_PIXEL_DFT);
-    GUI_DisString_EN(20, 110, date_no_time, &Font24, LCD_BACKGROUND, BLACK);
-    GUI_DisString_EN(20, 140, date_time, &Font24, LCD_BACKGROUND, BLACK);
+    GUI_DisString_EN(20, 110, date_str, &Font24, LCD_BACKGROUND, BLACK);
+    GUI_DisString_EN(20, 140, time_str, &Font24, LCD_BACKGROUND, BLACK);
 }
 
 void render_temperature(const char *data) {
-    const char *temperature_json_value;
+    const char *current_json_value;
     const char *max_json_value;
-    const char *temperature_json_tag = "\"temperature\":";
+    const char *current_json_tag = "\"temperature\":";
     const char *max_json_tag = "\"temperature_2m_max\":";
+    unsigned i;
 
-    temperature_json_value =
+    current_json_value =
         strstr(data,
-               temperature_json_tag); // First occurence is the units
-    assert(temperature_json_value);
-    temperature_json_value =
-        strstr(temperature_json_value + 1,
-               temperature_json_tag); // Second occurence is the actual value
-    temperature_json_value += strlen(temperature_json_tag);
+               current_json_tag); // First occurence is the units
+    assert(current_json_value);
+    current_json_value =
+        strstr(current_json_value + 1,
+               current_json_tag); // Second occurence is the actual value
+    current_json_value += strlen(current_json_tag);
 
     max_json_value = strstr(data,
                             max_json_tag); // First occurence is the units
@@ -136,23 +146,27 @@ void render_temperature(const char *data) {
                max_json_tag); // Second occurence is the actual value
     max_json_value += strlen(max_json_tag) + 1; // +1 for the [
 
-    char temperature_value[5];
-    strncpy(temperature_value, temperature_json_value, 4);
-    temperature_value[4] = '\0';
+    char current_value[strlen("20.0") + 1];
+    for (i = 0; current_json_value[i] != ','; ++i) {
+        current_value[i] = current_json_value[i];
+    }
+    current_value[i] = '\0';
 
-    char max_value[5];
-    strncpy(max_value, max_json_value, 4);
-    max_value[4] = '\0';
+    char max_value[strlen("20.0") + 1];
+    for (i = 0; max_json_value[i] != ']'; ++i) {
+        max_value[i] = max_json_value[i];
+    }
+    max_value[i] = '\0';
 
-    char temperature_string[] = "Temperature now: XXXX C";
-    sprintf(temperature_string, "Temperature now: %s C", temperature_value);
+    char current_string[] = "Temperature now: XXXX  ";
+    sprintf(current_string, "Temperature now: %s C", current_value);
 
-    char max_string[] = "Temperature max: XXXX C";
+    char max_string[] = "Temperature max: XXXX  ";
     sprintf(max_string, "Temperature max: %s C", max_value);
 
     // We first need to reset the LCD in the changed region
     GUI_DrawRectangle(20, 50, 480, 80 + 24, WHITE, DRAW_FULL, DOT_PIXEL_DFT);
-    GUI_DisString_EN(20, 50, temperature_string, &Font24, LCD_BACKGROUND, BLUE);
+    GUI_DisString_EN(20, 50, current_string, &Font24, LCD_BACKGROUND, BLUE);
     GUI_DisString_EN(20, 80, max_string, &Font24, LCD_BACKGROUND, BLUE);
 }
 
@@ -392,28 +406,25 @@ lwip_err_t callback_altcp_sent(void *arg, struct altcp_pcb *pcb, u16_t len) {
 // TCP + TLS data reception callback
 lwip_err_t callback_altcp_recv(void *arg, struct altcp_pcb *pcb,
                                struct pbuf *buf, lwip_err_t err) {
-
     struct pbuf *head = buf;
-    assert(buf->tot_len < HTTPS_RESPONSE_SIZE);
     struct altcp_callback_arg *callback_arg =
         (struct altcp_callback_arg *)pcb->arg;
-    memset(callback_arg->data, '\0', HTTPS_RESPONSE_SIZE);
 
-    if (err == ERR_OK) {
-        if (buf) {
-            unsigned j = 0;
-            printf("Received HTTP response:\n");
-            while (buf) {
-                for (unsigned i = 0; i < buf->len; i++, j++) {
-                    putchar(((char *)buf->payload)[i]);
-                    callback_arg->data[j] = ((char *)buf->payload)[i];
-                }
-                buf = buf->next;
+    printf("Received HTTP response:\n");
+    if (err == ERR_OK && head) {
+        assert(head->tot_len < HTTPS_RESPONSE_SIZE);
+        memset(callback_arg->data, '\0', HTTPS_RESPONSE_SIZE);
+        unsigned j = 0;
+        while (buf) {
+            for (unsigned i = 0; i < buf->len; i++, j++) {
+                putchar(((char *)buf->payload)[i]);
+                callback_arg->data[j] = ((char *)buf->payload)[i];
             }
-
-            // Advertise data reception
-            altcp_recved(pcb, head->tot_len);
+            buf = buf->next;
         }
+
+        // Advertise data reception
+        altcp_recved(pcb, head->tot_len);
 
         // Free buf
         pbuf_free(head); // Free entire pbuf chain
