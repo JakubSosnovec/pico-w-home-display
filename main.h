@@ -76,7 +76,7 @@ struct altcp_callback_arg {
     atomic_bool connected;
     atomic_uint send_acknowledged_bytes;
     _Atomic lwip_err_t received_err;
-    char data[HTTPS_RESPONSE_MAX_SIZE];
+    char http_response[HTTPS_RESPONSE_MAX_SIZE];
 };
 
 void init_stdio(void);
@@ -99,5 +99,6 @@ lwip_err_t callback_altcp_recv(void *arg, struct altcp_pcb *pcb,
 lwip_err_t callback_altcp_connect(void *arg, struct altcp_pcb *pcb,
                                   lwip_err_t err);
 
-void render_temperature(const char *data);
-void render_time(const char *data);
+void init_rtc(const char *http_response);
+void render_temperature(const char *http_response);
+void render_time();

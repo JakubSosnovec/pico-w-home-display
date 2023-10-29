@@ -1,5 +1,7 @@
+#include "hardware/rtc.h"
 #include "pico/cyw43_arch.h"
 #include "pico/stdlib.h"
+#include "pico/util/datetime.h"
 
 #include "lwip/altcp_tls.h"
 #include "lwip/dns.h"
@@ -11,10 +13,13 @@
 #include "LCD_GUI.h"
 #include "LCD_Touch.h"
 
+#include "time.h"
+
 #include "log.h"
 #include "main.h"
 
 void main(void) {
+    rtc_init();
     init_stdio();
 
     log_debug("Initializing CYW43");
@@ -41,6 +46,7 @@ void main(void) {
     cyw43_arch_lwip_end();
     log_info("Resolved %s (%s)", HTTPS_WEATHER_HOSTNAME, char_ipaddr);
 
+    bool rtc_initialized = false;
     while (true) {
         // Establish TCP + TLS connection with server
         struct altcp_callback_arg callback_arg;
@@ -71,8 +77,12 @@ void main(void) {
             }
 
             if (callback_arg.received_err == ERR_OK) {
-                render_temperature(callback_arg.data);
-                render_time(callback_arg.data);
+                if (!rtc_initialized) {
+                    init_rtc(callback_arg.http_response);
+                    rtc_initialized = true;
+                }
+                render_time(callback_arg.http_response);
+                render_temperature(callback_arg.http_response);
             } else {
                 log_warn("Received HTTPS response status is not OK");
                 break;
@@ -90,38 +100,54 @@ void main(void) {
     return;
 }
 
-void render_time(const char *data) {
-    const char *date_value;
-    const char *date_tag = "Date: ";
-    date_value = strstr(data, date_tag);
-    assert(date_value);
-    date_value += strlen(date_tag);
+void init_rtc(const char *http_response) {
+    const char *datetime_tag = "Date: ";
+    const char *end_tag = " GMT";
+    const char *datetime_ptr = strstr(http_response, datetime_tag);
+    assert(datetime_ptr);
+    datetime_ptr += strlen(datetime_tag);
+    const char *end_ptr = strstr(http_response, end_tag);
+    assert(end_ptr);
+    unsigned n = end_ptr - datetime_ptr;
 
-    char date_str[strlen("Sun, 22 Oct 2023") + 1];
-    char time_str[strlen("16:32:52 GMT") + 1];
+    char datetime_str[40];
+    memset(datetime_str, '\0', 40);
+    strncpy(datetime_str, datetime_ptr, n);
 
-    // Total black magic to parse the text into date and time
-    unsigned i = 0;
-    unsigned spaces = 0;
-    for (; spaces <= 3; ++i) {
-        if (date_value[i] == ' ')
-            spaces++;
-        date_str[i] = date_value[i];
-    }
-    date_str[i - 1] = '\0';
-    unsigned j = 0;
-    for (; date_value[i] != '\r'; ++i, ++j) {
-        time_str[j] = date_value[i];
-    }
-    time_str[j] = '\0';
+    // Set RTC
+    struct tm tm;
+    memset(&tm, 0, sizeof(tm));
+    strptime(datetime_str, "%a, %e %b %Y %T", &tm);
+    // Manual timezone fix, since doing this with plain libc is bloody
+    // frustrating
+    tm.tm_hour++;
+    mktime(&tm); // Should fix up the time into valid values
+
+    datetime_t t = {.year = tm.tm_year,
+                    .month = tm.tm_mon,
+                    .day = tm.tm_mday,
+                    .dotw = tm.tm_wday,
+                    .hour = tm.tm_hour,
+                    .min = tm.tm_min,
+                    .sec = tm.tm_sec};
+    rtc_set_datetime(&t);
+    sleep_us(64); // sleep to ensure that the next rtc_get_dattime is getting
+                  // the latest data
+}
+
+void render_time() {
+    datetime_t t;
+    rtc_get_datetime(&t);
+    char datetime_str[40];
+    sprintf(datetime_str, "%d:%02d:%02d %d/%d %d", t.hour, t.min, t.sec, t.day,
+            t.month, t.year + 1900);
 
     // We first need to reset the LCD in the changed region
     GUI_DrawRectangle(20, 110, 480, 140 + 24, WHITE, DRAW_FULL, DOT_PIXEL_DFT);
-    GUI_DisString_EN(20, 110, date_str, &Font24, LCD_BACKGROUND, BLACK);
-    GUI_DisString_EN(20, 140, time_str, &Font24, LCD_BACKGROUND, BLACK);
+    GUI_DisString_EN(20, 110, datetime_str, &Font24, LCD_BACKGROUND, BLACK);
 }
 
-void render_temperature(const char *data) {
+void render_temperature(const char *http_response) {
     const char *current_json_value;
     const char *max_json_value;
     const char *current_json_tag = "\"temperature\":";
@@ -129,7 +155,7 @@ void render_temperature(const char *data) {
     unsigned i;
 
     current_json_value =
-        strstr(data,
+        strstr(http_response,
                current_json_tag); // First occurence is the units
     assert(current_json_value);
     current_json_value =
@@ -137,7 +163,7 @@ void render_temperature(const char *data) {
                current_json_tag); // Second occurence is the actual value
     current_json_value += strlen(current_json_tag);
 
-    max_json_value = strstr(data,
+    max_json_value = strstr(http_response,
                             max_json_tag); // First occurence is the units
     assert(max_json_value);
     max_json_value =
@@ -401,12 +427,12 @@ lwip_err_t callback_altcp_recv(void *arg, struct altcp_pcb *pcb,
     log_trace("Received HTTP response:");
     if (err == ERR_OK && head) {
         assert(head->tot_len < HTTPS_RESPONSE_MAX_SIZE);
-        memset(callback_arg->data, '\0', HTTPS_RESPONSE_MAX_SIZE);
+        memset(callback_arg->http_response, '\0', HTTPS_RESPONSE_MAX_SIZE);
         unsigned j = 0;
         while (buf) {
             for (unsigned i = 0; i < buf->len; ++i, ++j) {
                 putchar(((char *)buf->payload)[i]);
-                callback_arg->data[j] = ((char *)buf->payload)[i];
+                callback_arg->http_response[j] = ((char *)buf->payload)[i];
             }
             buf = buf->next;
         }
