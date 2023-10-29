@@ -1,48 +1,45 @@
-// Pico SDK
-#include "pico/cyw43_arch.h" // Pico W wireless
-#include "pico/stdlib.h"     // Standard library
+#include "pico/cyw43_arch.h"
+#include "pico/stdlib.h"
 
-// lwIP
-#include "lwip/altcp_tls.h" // TCP + TLS (+ HTTP == HTTPS)
-#include "lwip/dns.h"       // Hostname resolution
+#include "lwip/altcp_tls.h"
+#include "lwip/dns.h"
 #include "lwip/prot/iana.h" // HTTPS port number
 
-#include "main.h" // Options, macros, forward declarations
-
-// LCD SDK
 #include "DEV_Config.h"
 #include "LCD_Bmp.h"
 #include "LCD_Driver.h"
 #include "LCD_GUI.h"
 #include "LCD_Touch.h"
 
-/* Main
- * ***********************************************************************/
+#include "main.h"
+#include "log.h"
 
 void main(void) {
     init_stdio();
 
-    printf("Initializing CYW43\n");
+    log_debug("Initializing CYW43");
     init_cyw43();
 
-    printf("Initializing LCD\n");
+    log_debug("Initializing LCD");
     init_lcd();
 
-    printf("Connecting to wireless network %s\n", WIFI_SSID);
+    log_debug("Connecting to wireless network %s", WIFI_SSID);
     connect_to_network();
 
     // Resolve server hostname
     ip_addr_t ipaddr;
     char *char_ipaddr;
-    printf("Resolving %s\n", HTTPS_HOSTNAME);
+    log_debug("Resolving %s", HTTPS_HOSTNAME);
     if (!resolve_hostname(&ipaddr)) {
-        printf("Failed to resolve %s\n", HTTPS_HOSTNAME);
+        log_fatal("Failed to resolve %s", HTTPS_HOSTNAME);
         return;
     }
+
+    // Convert to ip_addr_t
     cyw43_arch_lwip_begin();
     char_ipaddr = ipaddr_ntoa(&ipaddr);
     cyw43_arch_lwip_end();
-    printf("Resolved %s (%s)\n", HTTPS_HOSTNAME, char_ipaddr);
+    log_info("Resolved %s (%s)", HTTPS_HOSTNAME, char_ipaddr);
 
     struct altcp_callback_arg *callback_arg =
         malloc(sizeof(struct altcp_callback_arg));
@@ -51,32 +48,39 @@ void main(void) {
     while (true) {
         // Establish TCP + TLS connection with server
         struct altcp_pcb *pcb = NULL;
-        printf("Connecting to https://%s:%d\n", char_ipaddr,
+        log_debug("Connecting to https://%s:%d", char_ipaddr,
                LWIP_IANA_PORT_HTTPS);
         if (!connect_to_host(&ipaddr, &pcb, callback_arg)) {
-            printf("Failed to connect to https://%s:%d\n", char_ipaddr,
+            log_fatal("Failed to connect to https://%s:%d", char_ipaddr,
                    LWIP_IANA_PORT_HTTPS);
             return;
         }
-        printf("Connected to https://%s:%d\n", char_ipaddr,
+        log_info("Connected to https://%s:%d", char_ipaddr,
                LWIP_IANA_PORT_HTTPS);
 
         // We update every 10 seconds
         while (true) {
             callback_arg->received_err = ERR_INPROGRESS;
-            send(ipaddr, char_ipaddr, pcb);
-
-            // Await HTTP response
-            printf("Awaiting response\n");
-            while (callback_arg->received_err == ERR_INPROGRESS) {
-                sleep_ms(HTTPS_HTTP_RESPONSE_POLL_INTERVAL_MS);
+            const bool send_success = send_request(pcb);
+            if(send_success)
+            {
+                // Await HTTP response
+                log_debug("Awaiting response");
+                while (callback_arg->received_err == ERR_INPROGRESS) {
+                    sleep_ms(HTTPS_HTTP_RESPONSE_POLL_INTERVAL_MS);
+                }
+                log_info("Got HTTPS response");
             }
-            printf("Got response\n");
+            else
+            {
+                log_warn("Sending failed");
+            }
 
             if (callback_arg->received_err == ERR_OK) {
                 render_temperature(callback_arg->data);
                 render_time(callback_arg->data);
             } else {
+                log_warn("Received message status is not OK");
                 break;
             }
 
@@ -104,14 +108,14 @@ void render_time(const char *data) {
     // Total black magic to parse the text into date and time
     unsigned i = 0;
     unsigned spaces = 0;
-    for (; spaces <= 3; i++) {
+    for (; spaces <= 3; ++i) {
         if (date_value[i] == ' ')
             spaces++;
         date_str[i] = date_value[i];
     }
     date_str[i - 1] = '\0';
     unsigned j = 0;
-    for (; date_value[i] != '\r'; i++, j++) {
+    for (; date_value[i] != '\r'; ++i, ++j) {
         time_str[j] = date_value[i];
     }
     time_str[j] = '\0';
@@ -185,17 +189,6 @@ void init_lcd(void) {
                      RED);
 }
 
-void send(ip_addr_t ipaddr, char *char_ipaddr, struct altcp_pcb *pcb) {
-    if (send_request(pcb)) {
-        printf("Request sent\n");
-    } else {
-        printf("Failed to send request\n");
-    }
-}
-
-/* Functions
- * ******************************************************************/
-
 // Initialise standard I/O over USB
 void init_stdio(void) {
     stdio_usb_init();
@@ -253,7 +246,7 @@ bool connect_to_host(ip_addr_t *ipaddr, struct altcp_pcb **pcb,
         altcp_tls_create_config_client(cert, LEN(cert));
     cyw43_arch_lwip_end();
     if (!config) {
-        printf("create_config_client failed\n");
+        log_fatal("create_config_client failed");
         return false;
     }
 
@@ -291,21 +284,21 @@ bool connect_to_host(ip_addr_t *ipaddr, struct altcp_pcb **pcb,
     altcp_poll(*pcb, callback_altcp_poll, HTTPS_ALTCP_IDLE_POLL_SHOTS);
     cyw43_arch_lwip_end();
 
-    printf("altcp_poll done\n");
+    log_debug("altcp_poll done");
 
     // Configure data acknowledge callback
     cyw43_arch_lwip_begin();
     altcp_sent(*pcb, callback_altcp_sent);
     cyw43_arch_lwip_end();
 
-    printf("altcp_sent done\n");
+    log_debug("altcp_sent done");
 
     // Configure data reception callback
     cyw43_arch_lwip_begin();
     altcp_recv(*pcb, callback_altcp_recv);
     cyw43_arch_lwip_end();
 
-    printf("altcp_recv done\n");
+    log_debug("altcp_recv done");
 
     // Send connection request (SYN)
     cyw43_arch_lwip_begin();
@@ -350,24 +343,24 @@ bool send_request(struct altcp_pcb *pcb) {
     lwip_err_t lwip_err = altcp_write(pcb, request, LEN(request) - 1, 0);
     cyw43_arch_lwip_end();
 
+    struct altcp_callback_arg* callback_arg = (struct altcp_callback_arg *)pcb->arg;
+
     // Written to send buffer
     if (lwip_err == ERR_OK) {
 
         // Output send buffer
-        ((struct altcp_callback_arg *)pcb->arg)->send_acknowledged_bytes = 0;
+        callback_arg->send_acknowledged_bytes = 0;
         cyw43_arch_lwip_begin();
         lwip_err = altcp_output(pcb);
         cyw43_arch_lwip_end();
 
         // Send buffer output
         if (lwip_err == ERR_OK) {
-
             // Await acknowledgement
-            while (!((struct altcp_callback_arg *)pcb->arg)
-                        ->send_acknowledged_bytes)
+            unsigned shots = 0;
+            for (;callback_arg->send_acknowledged_bytes == 0 && shots < HTTPS_HTTP_RESPONSE_POLL_SHOTS; ++shots)
                 sleep_ms(HTTPS_HTTP_RESPONSE_POLL_INTERVAL_MS);
-            if (((struct altcp_callback_arg *)pcb->arg)
-                    ->send_acknowledged_bytes != (LEN(request) - 1))
+            if(shots == HTTPS_HTTP_RESPONSE_POLL_SHOTS || callback_arg->send_acknowledged_bytes != (LEN(request) - 1))
                 lwip_err = -1;
         }
     }
@@ -388,7 +381,7 @@ void callback_gethostbyname(const char *name, const ip_addr_t *resolved,
 // TCP + TLS connection error callback
 void callback_altcp_err(void *arg, lwip_err_t err) {
     // Print error code
-    printf("Connection error [lwip_err_t err == %d]\n", err);
+    log_fatal("Connection error [lwip_err_t err == %d]", err);
 }
 
 // TCP + TLS connection idle callback
@@ -410,13 +403,13 @@ lwip_err_t callback_altcp_recv(void *arg, struct altcp_pcb *pcb,
     struct altcp_callback_arg *callback_arg =
         (struct altcp_callback_arg *)pcb->arg;
 
-    printf("Received HTTP response:\n");
+    log_trace("Received HTTP response:");
     if (err == ERR_OK && head) {
         assert(head->tot_len < HTTPS_RESPONSE_SIZE);
         memset(callback_arg->data, '\0', HTTPS_RESPONSE_SIZE);
         unsigned j = 0;
         while (buf) {
-            for (unsigned i = 0; i < buf->len; i++, j++) {
+            for (unsigned i = 0; i < buf->len; ++i, ++j) {
                 putchar(((char *)buf->payload)[i]);
                 callback_arg->data[j] = ((char *)buf->payload)[i];
             }

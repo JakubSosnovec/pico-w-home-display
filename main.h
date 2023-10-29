@@ -22,6 +22,7 @@ typedef err_t lwip_err_t;
 #define HTTPS_ALTCP_CONNECT_POLL_INTERVAL_MS 100
 #define HTTPS_ALTCP_IDLE_POLL_SHOTS 2
 #define HTTPS_HTTP_RESPONSE_POLL_INTERVAL_MS 100
+#define HTTPS_HTTP_RESPONSE_POLL_SHOTS 20
 
 #define TLS_ROOT_CERT                                                          \
     "-----BEGIN CERTIFICATE-----\n\
@@ -96,7 +97,6 @@ lwip_err_t callback_altcp_recv(void *arg, struct altcp_pcb *pcb,
                                struct pbuf *buf, lwip_err_t err);
 lwip_err_t callback_altcp_connect(void *arg, struct altcp_pcb *pcb,
                                   lwip_err_t err);
-void send(ip_addr_t ipaddr, char *char_ipaddr, struct altcp_pcb *pcb);
 
 void render_temperature(const char *data);
 void render_time(const char *data);

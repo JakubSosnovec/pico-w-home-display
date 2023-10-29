@@ -15,6 +15,7 @@ add_subdirectory(Pico-LCD_lib)
 
 add_executable(weather_display
         main.c
+        log/log.c
         )
 target_compile_definitions(weather_display PRIVATE
         WIFI_SSID=\"${WIFI_SSID}\"
@@ -24,6 +25,7 @@ target_compile_definitions(weather_display PRIVATE
         )
 target_include_directories(weather_display PRIVATE
         ${CMAKE_CURRENT_LIST_DIR}
+        ${CMAKE_CURRENT_LIST_DIR}/log
         )
 target_link_libraries(weather_display PRIVATE
         pico_cyw43_arch_lwip_threadsafe_background
@@ -39,15 +41,6 @@ target_link_libraries(weather_display PRIVATE
 pico_enable_stdio_usb(weather_display 1)
 pico_enable_stdio_uart(weather_display 0)
 
-# Configure binary output
-#
-#
-#   Request additional binary formats (.uf2, .hex, etc.) to be built.
-#
-#   Defined in Pico SDK macros.
-#
-#   https://github.com/raspberrypi/pico-sdk/blob/master/src/rp2_common.cmake
-#
 pico_add_extra_outputs(weather_display)
 
 # Ignore warnings from lwip code
