@@ -6,18 +6,18 @@ typedef err_t lwip_err_t;
 
 #define HTTPS_WIFI_TIMEOUT_MS 20000
 
-#define HTTPS_HOSTNAME "api.open-meteo.com"
-#define HTTPS_QUERY                                                            \
+#define HTTPS_WEATHER_HOSTNAME "api.open-meteo.com"
+#define HTTPS_WEATHER_QUERY                                                    \
     "/v1/"                                                                     \
     "forecast?latitude=50.07&longitude=14.42&current_weather=true&daily="      \
     "temperature_2m_max&timezone=auto&forecast_days=1"
 
-#define HTTPS_REQUEST                                                          \
-    "GET " HTTPS_QUERY " HTTP/1.1\r\n"                                         \
-    "Host: " HTTPS_HOSTNAME "\r\n"                                             \
+#define HTTPS_WEATHER_REQUEST                                                  \
+    "GET " HTTPS_WEATHER_QUERY " HTTP/1.1\r\n"                                 \
+    "Host: " HTTPS_WEATHER_HOSTNAME "\r\n"                                     \
     "\r\n"
-#define HTTPS_RESPONSE_SIZE 4096
 
+#define HTTPS_RESPONSE_MAX_SIZE 4096
 #define HTTPS_RESOLVE_POLL_INTERVAL_MS 100
 #define HTTPS_ALTCP_CONNECT_POLL_INTERVAL_MS 100
 #define HTTPS_ALTCP_IDLE_POLL_SHOTS 2
@@ -76,7 +76,7 @@ struct altcp_callback_arg {
     atomic_bool connected;
     atomic_uint send_acknowledged_bytes;
     _Atomic lwip_err_t received_err;
-    char data[HTTPS_RESPONSE_SIZE];
+    char data[HTTPS_RESPONSE_MAX_SIZE];
 };
 
 void init_stdio(void);

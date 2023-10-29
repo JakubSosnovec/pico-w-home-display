@@ -29,9 +29,9 @@ void main(void) {
     // Resolve server hostname
     ip_addr_t ipaddr;
     char *char_ipaddr;
-    log_debug("Resolving %s", HTTPS_HOSTNAME);
+    log_debug("Resolving %s", HTTPS_WEATHER_HOSTNAME);
     if (!resolve_hostname(&ipaddr)) {
-        log_fatal("Failed to resolve %s", HTTPS_HOSTNAME);
+        log_fatal("Failed to resolve %s", HTTPS_WEATHER_HOSTNAME);
         return;
     }
 
@@ -39,7 +39,7 @@ void main(void) {
     cyw43_arch_lwip_begin();
     char_ipaddr = ipaddr_ntoa(&ipaddr);
     cyw43_arch_lwip_end();
-    log_info("Resolved %s (%s)", HTTPS_HOSTNAME, char_ipaddr);
+    log_info("Resolved %s (%s)", HTTPS_WEATHER_HOSTNAME, char_ipaddr);
 
     while (true) {
         // Establish TCP + TLS connection with server
@@ -59,27 +59,28 @@ void main(void) {
         while (true) {
             callback_arg.received_err = ERR_INPROGRESS;
             const bool send_success = send_request(pcb, &callback_arg);
-            if (send_success) {
+            if (!send_success) {
+                log_warn("HTTPS request sending failed");
+            } else {
                 // Await HTTP response
-                log_debug("Awaiting response");
+                log_debug("Awaiting HTTPSresponse");
                 while (callback_arg.received_err == ERR_INPROGRESS) {
                     sleep_ms(HTTPS_HTTP_RESPONSE_POLL_INTERVAL_MS);
                 }
                 log_info("Got HTTPS response");
-            } else {
-                log_warn("Sending failed");
             }
 
             if (callback_arg.received_err == ERR_OK) {
                 render_temperature(callback_arg.data);
                 render_time(callback_arg.data);
             } else {
-                log_warn("Received message status is not OK");
+                log_warn("Received HTTPS response status is not OK");
                 break;
             }
 
             sleep_ms(10000);
         }
+        log_info("Closing HTTPS connection");
         cyw43_arch_lwip_begin();
         altcp_tls_free_config(callback_arg.config);
         altcp_close(pcb);
@@ -144,13 +145,13 @@ void render_temperature(const char *data) {
                max_json_tag); // Second occurence is the actual value
     max_json_value += strlen(max_json_tag) + 1; // +1 for the [
 
-    char current_value[strlen("20.0") + 1];
+    char current_value[strlen("10.0") + 1];
     for (i = 0; current_json_value[i] != ','; ++i) {
         current_value[i] = current_json_value[i];
     }
     current_value[i] = '\0';
 
-    char max_value[strlen("20.0") + 1];
+    char max_value[strlen("10.0") + 1];
     for (i = 0; max_json_value[i] != ']'; ++i) {
         max_value[i] = max_json_value[i];
     }
@@ -196,10 +197,12 @@ void init_cyw43(void) {
 
 // Connect to wireless network
 void connect_to_network(void) {
+    cyw43_arch_lwip_begin();
     cyw43_arch_enable_sta_mode();
     cyw43_arch_wifi_connect_timeout_ms(WIFI_SSID, WIFI_PASSWORD,
                                        CYW43_AUTH_WPA2_AES_PSK,
                                        HTTPS_WIFI_TIMEOUT_MS);
+    cyw43_arch_lwip_end();
 }
 
 // Resolve hostname
@@ -210,7 +213,7 @@ bool resolve_hostname(ip_addr_t *ipaddr) {
 
     // Attempt resolution
     cyw43_arch_lwip_begin();
-    lwip_err_t lwip_err = dns_gethostbyname(HTTPS_HOSTNAME, ipaddr,
+    lwip_err_t lwip_err = dns_gethostbyname(HTTPS_WEATHER_HOSTNAME, ipaddr,
                                             callback_gethostbyname, ipaddr);
     cyw43_arch_lwip_end();
     if (lwip_err == ERR_INPROGRESS) {
@@ -278,21 +281,15 @@ bool connect_to_host(ip_addr_t *ipaddr, struct altcp_pcb **pcb,
     altcp_poll(*pcb, callback_altcp_poll, HTTPS_ALTCP_IDLE_POLL_SHOTS);
     cyw43_arch_lwip_end();
 
-    log_debug("altcp_poll done");
-
     // Configure data acknowledge callback
     cyw43_arch_lwip_begin();
     altcp_sent(*pcb, callback_altcp_sent);
     cyw43_arch_lwip_end();
 
-    log_debug("altcp_sent done");
-
     // Configure data reception callback
     cyw43_arch_lwip_begin();
     altcp_recv(*pcb, callback_altcp_recv);
     cyw43_arch_lwip_end();
-
-    log_debug("altcp_recv done");
 
     // Send connection request (SYN)
     cyw43_arch_lwip_begin();
@@ -302,6 +299,7 @@ bool connect_to_host(ip_addr_t *ipaddr, struct altcp_pcb **pcb,
 
     // Connection request sent
     if (lwip_err == ERR_OK) {
+        log_info("HTTP SYN packet sent successfully, awaiting response");
 
         // Await connection
         //
@@ -310,6 +308,8 @@ bool connect_to_host(ip_addr_t *ipaddr, struct altcp_pcb **pcb,
         //
         while (!(arg->connected))
             sleep_ms(HTTPS_ALTCP_CONNECT_POLL_INTERVAL_MS);
+    } else {
+        log_warn("HTTP SYN packet sending failed");
     }
 
     // Return
@@ -319,8 +319,7 @@ bool connect_to_host(ip_addr_t *ipaddr, struct altcp_pcb **pcb,
 // Send HTTP request
 bool send_request(struct altcp_pcb *pcb,
                   struct altcp_callback_arg *callback_arg) {
-
-    const char request[] = HTTPS_REQUEST;
+    const char request[] = HTTPS_WEATHER_REQUEST;
 
     // Check send buffer and queue length
     //
@@ -401,8 +400,8 @@ lwip_err_t callback_altcp_recv(void *arg, struct altcp_pcb *pcb,
 
     log_trace("Received HTTP response:");
     if (err == ERR_OK && head) {
-        assert(head->tot_len < HTTPS_RESPONSE_SIZE);
-        memset(callback_arg->data, '\0', HTTPS_RESPONSE_SIZE);
+        assert(head->tot_len < HTTPS_RESPONSE_MAX_SIZE);
+        memset(callback_arg->data, '\0', HTTPS_RESPONSE_MAX_SIZE);
         unsigned j = 0;
         while (buf) {
             for (unsigned i = 0; i < buf->len; ++i, ++j) {
