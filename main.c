@@ -11,8 +11,8 @@
 #include "LCD_GUI.h"
 #include "LCD_Touch.h"
 
-#include "main.h"
 #include "log.h"
+#include "main.h"
 
 void main(void) {
     init_stdio();
@@ -41,44 +41,38 @@ void main(void) {
     cyw43_arch_lwip_end();
     log_info("Resolved %s (%s)", HTTPS_HOSTNAME, char_ipaddr);
 
-    struct altcp_callback_arg *callback_arg =
-        malloc(sizeof(struct altcp_callback_arg));
-    assert(callback_arg);
-
     while (true) {
         // Establish TCP + TLS connection with server
+        struct altcp_callback_arg callback_arg;
         struct altcp_pcb *pcb = NULL;
         log_debug("Connecting to https://%s:%d", char_ipaddr,
-               LWIP_IANA_PORT_HTTPS);
-        if (!connect_to_host(&ipaddr, &pcb, callback_arg)) {
+                  LWIP_IANA_PORT_HTTPS);
+        if (!connect_to_host(&ipaddr, &pcb, &callback_arg)) {
             log_fatal("Failed to connect to https://%s:%d", char_ipaddr,
-                   LWIP_IANA_PORT_HTTPS);
+                      LWIP_IANA_PORT_HTTPS);
             return;
         }
         log_info("Connected to https://%s:%d", char_ipaddr,
-               LWIP_IANA_PORT_HTTPS);
+                 LWIP_IANA_PORT_HTTPS);
 
         // We update every 10 seconds
         while (true) {
-            callback_arg->received_err = ERR_INPROGRESS;
-            const bool send_success = send_request(pcb);
-            if(send_success)
-            {
+            callback_arg.received_err = ERR_INPROGRESS;
+            const bool send_success = send_request(pcb, &callback_arg);
+            if (send_success) {
                 // Await HTTP response
                 log_debug("Awaiting response");
-                while (callback_arg->received_err == ERR_INPROGRESS) {
+                while (callback_arg.received_err == ERR_INPROGRESS) {
                     sleep_ms(HTTPS_HTTP_RESPONSE_POLL_INTERVAL_MS);
                 }
                 log_info("Got HTTPS response");
-            }
-            else
-            {
+            } else {
                 log_warn("Sending failed");
             }
 
-            if (callback_arg->received_err == ERR_OK) {
-                render_temperature(callback_arg->data);
-                render_time(callback_arg->data);
+            if (callback_arg.received_err == ERR_OK) {
+                render_temperature(callback_arg.data);
+                render_time(callback_arg.data);
             } else {
                 log_warn("Received message status is not OK");
                 break;
@@ -87,7 +81,7 @@ void main(void) {
             sleep_ms(10000);
         }
         cyw43_arch_lwip_begin();
-        altcp_tls_free_config(callback_arg->config);
+        altcp_tls_free_config(callback_arg.config);
         altcp_close(pcb);
         cyw43_arch_lwip_end();
     }
@@ -323,7 +317,8 @@ bool connect_to_host(ip_addr_t *ipaddr, struct altcp_pcb **pcb,
 }
 
 // Send HTTP request
-bool send_request(struct altcp_pcb *pcb) {
+bool send_request(struct altcp_pcb *pcb,
+                  struct altcp_callback_arg *callback_arg) {
 
     const char request[] = HTTPS_REQUEST;
 
@@ -343,8 +338,6 @@ bool send_request(struct altcp_pcb *pcb) {
     lwip_err_t lwip_err = altcp_write(pcb, request, LEN(request) - 1, 0);
     cyw43_arch_lwip_end();
 
-    struct altcp_callback_arg* callback_arg = (struct altcp_callback_arg *)pcb->arg;
-
     // Written to send buffer
     if (lwip_err == ERR_OK) {
 
@@ -358,9 +351,12 @@ bool send_request(struct altcp_pcb *pcb) {
         if (lwip_err == ERR_OK) {
             // Await acknowledgement
             unsigned shots = 0;
-            for (;callback_arg->send_acknowledged_bytes == 0 && shots < HTTPS_HTTP_RESPONSE_POLL_SHOTS; ++shots)
+            for (; callback_arg->send_acknowledged_bytes == 0 &&
+                   shots < HTTPS_HTTP_RESPONSE_POLL_SHOTS;
+                 ++shots)
                 sleep_ms(HTTPS_HTTP_RESPONSE_POLL_INTERVAL_MS);
-            if(shots == HTTPS_HTTP_RESPONSE_POLL_SHOTS || callback_arg->send_acknowledged_bytes != (LEN(request) - 1))
+            if (shots == HTTPS_HTTP_RESPONSE_POLL_SHOTS ||
+                callback_arg->send_acknowledged_bytes != (LEN(request) - 1))
                 lwip_err = -1;
         }
     }
@@ -392,16 +388,16 @@ lwip_err_t callback_altcp_poll(void *arg, struct altcp_pcb *pcb) {
 
 // TCP + TLS data acknowledgement callback
 lwip_err_t callback_altcp_sent(void *arg, struct altcp_pcb *pcb, u16_t len) {
-    ((struct altcp_callback_arg *)arg)->send_acknowledged_bytes = len;
+    struct altcp_callback_arg *callback_arg = (struct altcp_callback_arg *)arg;
+    callback_arg->send_acknowledged_bytes = len;
     return ERR_OK;
 }
 
 // TCP + TLS data reception callback
 lwip_err_t callback_altcp_recv(void *arg, struct altcp_pcb *pcb,
                                struct pbuf *buf, lwip_err_t err) {
+    struct altcp_callback_arg *callback_arg = (struct altcp_callback_arg *)arg;
     struct pbuf *head = buf;
-    struct altcp_callback_arg *callback_arg =
-        (struct altcp_callback_arg *)pcb->arg;
 
     log_trace("Received HTTP response:");
     if (err == ERR_OK && head) {
@@ -430,6 +426,7 @@ lwip_err_t callback_altcp_recv(void *arg, struct altcp_pcb *pcb,
 // TCP + TLS connection establishment callback
 lwip_err_t callback_altcp_connect(void *arg, struct altcp_pcb *pcb,
                                   lwip_err_t err) {
-    ((struct altcp_callback_arg *)arg)->connected = true;
+    struct altcp_callback_arg *callback_arg = (struct altcp_callback_arg *)arg;
+    callback_arg->connected = true;
     return ERR_OK;
 }

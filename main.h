@@ -87,7 +87,8 @@ void connect_to_network(void);
 bool resolve_hostname(ip_addr_t *ipaddr);
 bool connect_to_host(ip_addr_t *ipaddr, struct altcp_pcb **pcb,
                      struct altcp_callback_arg *arg);
-bool send_request(struct altcp_pcb *pcb);
+bool send_request(struct altcp_pcb *pcb,
+                  struct altcp_callback_arg *callback_arg);
 void callback_gethostbyname(const char *name, const ip_addr_t *resolved,
                             void *ipaddr);
 void callback_altcp_err(void *arg, lwip_err_t err);
