@@ -12,9 +12,22 @@ typedef err_t lwip_err_t;
     "forecast?latitude=50.07&longitude=14.42&current_weather=true&daily="      \
     "temperature_2m_max&timezone=auto&forecast_days=1"
 
+#define HTTPS_GOLEMIO_HOSTNAME "https://api.golemio.cz"
+#define HTTPS_GOLEMIO_QUERY                                                    \
+    "/v2/pid/"                                                                 \
+    "departureboards?ids=U876Z1P&minutesBefore=0&minutesAfter=60&"             \
+    "includeMetroTrains=false&airCondition=false&mode=departures&order=real&"  \
+    "filter=none&skip=canceled&limit=10&total=10&offset=0"
+
 #define HTTPS_WEATHER_REQUEST                                                  \
     "GET " HTTPS_WEATHER_QUERY " HTTP/1.1\r\n"                                 \
     "Host: " HTTPS_WEATHER_HOSTNAME "\r\n"                                     \
+    "\r\n"
+
+#define HTTPS_GOLEMIO_REQUEST                                                  \
+    "GET " HTTPS_GOLEMIO_QUERY " HTTP/1.1\r\n"                                 \
+    "Host: " HTTPS_GOLEMIO_HOSTNAME "\r\n"                                     \
+    "X-Access-Token: " GOLEMIO_API_KEY "\r\n"                                  \
     "\r\n"
 
 #define HTTPS_RESPONSE_MAX_SIZE 4096
@@ -23,6 +36,8 @@ typedef err_t lwip_err_t;
 #define HTTPS_ALTCP_IDLE_POLL_SHOTS 2
 #define HTTPS_HTTP_RESPONSE_POLL_INTERVAL_MS 100
 #define HTTPS_HTTP_RESPONSE_POLL_SHOTS 20
+
+#define MAX_JSON_FIELDS 50
 
 #define TLS_ROOT_CERT                                                          \
     "-----BEGIN CERTIFICATE-----\n\
@@ -84,11 +99,12 @@ void init_cyw43(void);
 void init_lcd(void);
 void connect_to_network(void);
 
-bool resolve_hostname(ip_addr_t *ipaddr);
+void resolve_hostname(ip_addr_t *ipaddr, char **char_ipaddr,
+                      const char *hostname);
 bool connect_to_host(ip_addr_t *ipaddr, struct altcp_pcb **pcb,
                      struct altcp_callback_arg *arg);
 bool send_request(struct altcp_pcb *pcb,
-                  struct altcp_callback_arg *callback_arg);
+                  struct altcp_callback_arg *callback_arg, const char *request);
 void callback_gethostbyname(const char *name, const ip_addr_t *resolved,
                             void *ipaddr);
 void callback_altcp_err(void *arg, lwip_err_t err);
@@ -101,4 +117,4 @@ lwip_err_t callback_altcp_connect(void *arg, struct altcp_pcb *pcb,
 
 void init_rtc(const char *http_response);
 void render_temperature(const char *http_response);
-void render_time();
+void render_time(void);

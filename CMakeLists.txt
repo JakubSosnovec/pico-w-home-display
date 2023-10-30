@@ -33,7 +33,7 @@ endif()
 
 add_subdirectory(Pico-LCD_lib)
 
-add_executable(weather_display main.c log/log.c ${PROTO_SRCS})
+add_executable(weather_display main.c log/log.c tiny-json/tiny-json.c ${PROTO_SRCS})
 target_compile_definitions(
   weather_display
   PRIVATE WIFI_SSID=\"${WIFI_SSID}\"
@@ -44,6 +44,7 @@ target_compile_definitions(
 target_include_directories(
   weather_display PRIVATE ${CMAKE_CURRENT_LIST_DIR}
                           ${CMAKE_CURRENT_LIST_DIR}/log
+                          ${CMAKE_CURRENT_LIST_DIR}/tiny-json
                           ${NANOPB_INCLUDE_DIRS})
 target_link_libraries(
   weather_display

@@ -13,88 +13,75 @@
 #include "LCD_GUI.h"
 #include "LCD_Touch.h"
 
-#include "time.h"
-
 #include "log.h"
 #include "main.h"
+#include "time.h"
+#include "tiny-json.h"
 
 void main(void) {
-    rtc_init();
     init_stdio();
-
-    log_debug("Initializing CYW43");
     init_cyw43();
-
-    log_debug("Initializing LCD");
     init_lcd();
 
-    log_debug("Connecting to wireless network %s", WIFI_SSID);
     connect_to_network();
+    rtc_init();
 
     // Resolve server hostname
-    ip_addr_t ipaddr;
-    char *char_ipaddr;
-    log_debug("Resolving %s", HTTPS_WEATHER_HOSTNAME);
-    if (!resolve_hostname(&ipaddr)) {
-        log_fatal("Failed to resolve %s", HTTPS_WEATHER_HOSTNAME);
-        return;
-    }
-
-    // Convert to ip_addr_t
-    cyw43_arch_lwip_begin();
-    char_ipaddr = ipaddr_ntoa(&ipaddr);
-    cyw43_arch_lwip_end();
-    log_info("Resolved %s (%s)", HTTPS_WEATHER_HOSTNAME, char_ipaddr);
+    ip_addr_t weather_ipaddr;
+    char *weather_char_ipaddr;
+    resolve_hostname(&weather_ipaddr, &weather_char_ipaddr,
+                     HTTPS_WEATHER_HOSTNAME);
 
     bool rtc_initialized = false;
+    struct altcp_callback_arg weather_callback_arg;
+    struct altcp_pcb *weather_pcb = NULL;
+
+    // Establish new TCP + TLS connection with server
+    while (!connect_to_host(&weather_ipaddr, &weather_pcb,
+                            &weather_callback_arg)) {
+        sleep_ms(HTTPS_HTTP_RESPONSE_POLL_INTERVAL_MS);
+    }
+
+    // We update every 10 seconds
     while (true) {
-        // Establish TCP + TLS connection with server
-        struct altcp_callback_arg callback_arg;
-        struct altcp_pcb *pcb = NULL;
-        log_debug("Connecting to https://%s:%d", char_ipaddr,
-                  LWIP_IANA_PORT_HTTPS);
-        if (!connect_to_host(&ipaddr, &pcb, &callback_arg)) {
-            log_fatal("Failed to connect to https://%s:%d", char_ipaddr,
-                      LWIP_IANA_PORT_HTTPS);
-            return;
-        }
-        log_info("Connected to https://%s:%d", char_ipaddr,
-                 LWIP_IANA_PORT_HTTPS);
-
-        // We update every 10 seconds
-        while (true) {
-            callback_arg.received_err = ERR_INPROGRESS;
-            const bool send_success = send_request(pcb, &callback_arg);
-            if (!send_success) {
-                log_warn("HTTPS request sending failed");
-            } else {
-                // Await HTTP response
-                log_debug("Awaiting HTTPSresponse");
-                while (callback_arg.received_err == ERR_INPROGRESS) {
-                    sleep_ms(HTTPS_HTTP_RESPONSE_POLL_INTERVAL_MS);
-                }
-                log_info("Got HTTPS response");
+        weather_callback_arg.received_err = ERR_INPROGRESS;
+        const bool send_success = send_request(
+            weather_pcb, &weather_callback_arg, HTTPS_WEATHER_REQUEST);
+        if (!send_success) {
+            log_warn("HTTP request sending failed");
+        } else {
+            // Await HTTP response
+            log_debug("Awaiting HTTP response");
+            while (weather_callback_arg.received_err == ERR_INPROGRESS) {
+                sleep_ms(HTTPS_HTTP_RESPONSE_POLL_INTERVAL_MS);
             }
-
-            if (callback_arg.received_err == ERR_OK) {
-                if (!rtc_initialized) {
-                    init_rtc(callback_arg.http_response);
-                    rtc_initialized = true;
-                }
-                render_time(callback_arg.http_response);
-                render_temperature(callback_arg.http_response);
-            } else {
-                log_warn("Received HTTPS response status is not OK");
-                break;
-            }
-
-            sleep_ms(10000);
+            log_info("Got HTTP response");
         }
-        log_info("Closing HTTPS connection");
-        cyw43_arch_lwip_begin();
-        altcp_tls_free_config(callback_arg.config);
-        altcp_close(pcb);
-        cyw43_arch_lwip_end();
+
+        if (weather_callback_arg.received_err == ERR_OK) {
+            if (!rtc_initialized) {
+                init_rtc(weather_callback_arg.http_response);
+                rtc_initialized = true;
+            }
+            render_time();
+            render_temperature(weather_callback_arg.http_response);
+        } else {
+            log_warn("Received HTTP response status is not OK. Closing HTTP "
+                     "connection");
+            // Close connection
+            cyw43_arch_lwip_begin();
+            altcp_tls_free_config(weather_callback_arg.config);
+            altcp_close(weather_pcb);
+            cyw43_arch_lwip_end();
+
+            // Establish new TCP + TLS connection with server
+            while (!connect_to_host(&weather_ipaddr, &weather_pcb,
+                                    &weather_callback_arg)) {
+                sleep_ms(HTTPS_HTTP_RESPONSE_POLL_INTERVAL_MS);
+            }
+        }
+
+        sleep_ms(10000);
     }
 
     return;
@@ -135,67 +122,72 @@ void init_rtc(const char *http_response) {
                   // the latest data
 }
 
-void render_time() {
+void render_time(void) {
     datetime_t t;
     rtc_get_datetime(&t);
     char datetime_str[40];
-    sprintf(datetime_str, "%d:%02d:%02d %d/%d %d", t.hour, t.min, t.sec, t.day,
-            t.month, t.year + 1900);
+    sprintf(datetime_str, "%d:%02d:%02d, %d/%d, %d", t.hour, t.min, t.sec,
+            t.day, t.month, t.year + 1900);
 
     // We first need to reset the LCD in the changed region
-    GUI_DrawRectangle(20, 110, 480, 140 + 24, WHITE, DRAW_FULL, DOT_PIXEL_DFT);
-    GUI_DisString_EN(20, 110, datetime_str, &Font24, LCD_BACKGROUND, BLACK);
+    GUI_DrawRectangle(20, 50, 480, 50 + 24, WHITE, DRAW_FULL, DOT_PIXEL_DFT);
+    GUI_DisString_EN(20, 50, datetime_str, &Font24, LCD_BACKGROUND, BLACK);
 }
 
 void render_temperature(const char *http_response) {
-    const char *current_json_value;
-    const char *max_json_value;
-    const char *current_json_tag = "\"temperature\":";
-    const char *max_json_tag = "\"temperature_2m_max\":";
-    unsigned i;
+    // Parse HTTP chunk size
+    const char *chunk_size_str_begin = strstr(http_response, "\r\n\r\n");
+    assert(chunk_size_str_begin);
+    chunk_size_str_begin += 4;
+    const char *chunk_size_str_end = strstr(chunk_size_str_begin, "\r\n");
+    assert(chunk_size_str_end);
+    unsigned chunk_size_len = chunk_size_str_end - chunk_size_str_begin;
+    // For strtol, we need a null-terminated string...
+    char chunk_size_str[10];
+    memset(chunk_size_str, '\0', sizeof(chunk_size_str));
+    memcpy(chunk_size_str, chunk_size_str_begin, chunk_size_len);
+    int chunk_size = strtol(chunk_size_str, NULL, 16);
 
-    current_json_value =
-        strstr(http_response,
-               current_json_tag); // First occurence is the units
-    assert(current_json_value);
-    current_json_value =
-        strstr(current_json_value + 1,
-               current_json_tag); // Second occurence is the actual value
-    current_json_value += strlen(current_json_tag);
+    // Create null-terminated string with just JSON
+    const char *json_response_begin = chunk_size_str_end + 2;
+    char json_response_str[HTTPS_RESPONSE_MAX_SIZE];
+    memset(json_response_str, '\0', sizeof(json_response_str));
+    memcpy(json_response_str, json_response_begin, chunk_size);
 
-    max_json_value = strstr(http_response,
-                            max_json_tag); // First occurence is the units
-    assert(max_json_value);
-    max_json_value =
-        strstr(max_json_value + 1,
-               max_json_tag); // Second occurence is the actual value
-    max_json_value += strlen(max_json_tag) + 1; // +1 for the [
+    json_t pool[MAX_JSON_FIELDS];
+    const json_t *json = json_create(json_response_str, pool, MAX_JSON_FIELDS);
+    assert(json);
+    const json_t *current_weather_field =
+        json_getProperty(json, "current_weather");
+    assert(json_getType(current_weather_field) == JSON_OBJ);
+    const json_t *temperature_field =
+        json_getProperty(current_weather_field, "temperature");
+    assert(json_getType(temperature_field) == JSON_REAL);
+    const json_t *daily_field = json_getProperty(json, "daily");
+    assert(json_getType(daily_field) == JSON_OBJ);
+    const json_t *temperature_max_arr_field =
+        json_getProperty(daily_field, "temperature_2m_max");
+    assert(json_getType(temperature_max_arr_field) == JSON_ARRAY);
+    const json_t *temperature_max_field =
+        json_getChild(temperature_max_arr_field);
+    assert(json_getType(temperature_max_field) == JSON_REAL);
 
-    char current_value[strlen("10.0") + 1];
-    for (i = 0; current_json_value[i] != ','; ++i) {
-        current_value[i] = current_json_value[i];
-    }
-    current_value[i] = '\0';
-
-    char max_value[strlen("10.0") + 1];
-    for (i = 0; max_json_value[i] != ']'; ++i) {
-        max_value[i] = max_json_value[i];
-    }
-    max_value[i] = '\0';
-
-    char current_string[] = "Temperature now: XXXX  ";
-    sprintf(current_string, "Temperature now: %s C", current_value);
-
-    char max_string[] = "Temperature max: XXXX  ";
-    sprintf(max_string, "Temperature max: %s C", max_value);
+    char temperature_string[30];
+    sprintf(temperature_string, "Temperature now: %.1f C",
+            json_getReal(temperature_field));
+    char temperature_max_string[30];
+    sprintf(temperature_max_string, "Temperature max: %.1f C",
+            json_getReal(temperature_max_field));
 
     // We first need to reset the LCD in the changed region
-    GUI_DrawRectangle(20, 50, 480, 80 + 24, WHITE, DRAW_FULL, DOT_PIXEL_DFT);
-    GUI_DisString_EN(20, 50, current_string, &Font24, LCD_BACKGROUND, BLUE);
-    GUI_DisString_EN(20, 80, max_string, &Font24, LCD_BACKGROUND, BLUE);
+    GUI_DrawRectangle(20, 80, 480, 110 + 24, WHITE, DRAW_FULL, DOT_PIXEL_DFT);
+    GUI_DisString_EN(20, 80, temperature_string, &Font24, LCD_BACKGROUND, BLUE);
+    GUI_DisString_EN(20, 110, temperature_max_string, &Font24, LCD_BACKGROUND,
+                     BLUE);
 }
 
 void init_lcd(void) {
+    log_debug("Initializing LCD");
     DEV_GPIO_Init();
     spi_init(SPI_PORT, 4000000);
     gpio_set_function(LCD_CLK_PIN, GPIO_FUNC_SPI);
@@ -218,11 +210,13 @@ void init_stdio(void) {
 
 // Initialise Pico W wireless hardware
 void init_cyw43(void) {
+    log_debug("Initializing CYW43");
     cyw43_arch_init_with_country(CYW43_COUNTRY_CZECH_REPUBLIC);
 }
 
 // Connect to wireless network
 void connect_to_network(void) {
+    log_debug("Connecting to wireless network %s", WIFI_SSID);
     cyw43_arch_lwip_begin();
     cyw43_arch_enable_sta_mode();
     cyw43_arch_wifi_connect_timeout_ms(WIFI_SSID, WIFI_PASSWORD,
@@ -232,15 +226,15 @@ void connect_to_network(void) {
 }
 
 // Resolve hostname
-bool resolve_hostname(ip_addr_t *ipaddr) {
-
-    // Zero address
+void resolve_hostname(ip_addr_t *ipaddr, char **char_ipaddr,
+                      const char *hostname) {
+    log_debug("Resolving %s", hostname);
     ipaddr->addr = IPADDR_ANY;
 
     // Attempt resolution
     cyw43_arch_lwip_begin();
-    lwip_err_t lwip_err = dns_gethostbyname(HTTPS_WEATHER_HOSTNAME, ipaddr,
-                                            callback_gethostbyname, ipaddr);
+    lwip_err_t lwip_err =
+        dns_gethostbyname(hostname, ipaddr, callback_gethostbyname, ipaddr);
     cyw43_arch_lwip_end();
     if (lwip_err == ERR_INPROGRESS) {
 
@@ -253,16 +247,21 @@ bool resolve_hostname(ip_addr_t *ipaddr) {
             sleep_ms(HTTPS_RESOLVE_POLL_INTERVAL_MS);
         if (ipaddr->addr != IPADDR_NONE)
             lwip_err = ERR_OK;
+        else
+            log_fatal("Failed to resolve %s", hostname);
     }
 
-    // Return
-    return !((bool)lwip_err);
+    // Convert to ip_addr_t
+    cyw43_arch_lwip_begin();
+    *char_ipaddr = ipaddr_ntoa(ipaddr);
+    cyw43_arch_lwip_end();
+    log_info("Resolved %s (%s)", hostname, *char_ipaddr);
 }
 
 // Establish TCP + TLS connection with server
 bool connect_to_host(ip_addr_t *ipaddr, struct altcp_pcb **pcb,
                      struct altcp_callback_arg *arg) {
-
+    log_debug("Connecting to port %d", LWIP_IANA_PORT_HTTPS);
     const u8_t cert[] = TLS_ROOT_CERT;
     cyw43_arch_lwip_begin();
     struct altcp_tls_config *config =
@@ -273,19 +272,6 @@ bool connect_to_host(ip_addr_t *ipaddr, struct altcp_pcb **pcb,
         return false;
     }
 
-    // Instantiate connection PCB
-    //
-    //  Can also do this more generically using;
-    //
-    //    altcp_allocator_t allocator = {
-    //      altcp_tls_alloc,       // Allocator function
-    //      config                 // Allocator function argument (state)
-    //    };
-    //    altcp_new(&allocator);
-    //
-    //  No benefit in doing this though; altcp_tls_alloc calls altcp_tls_new
-    //  under the hood anyway.
-    //
     cyw43_arch_lwip_begin();
     *pcb = altcp_tls_new(config, IPADDR_TYPE_V4);
     cyw43_arch_lwip_end();
@@ -334,6 +320,7 @@ bool connect_to_host(ip_addr_t *ipaddr, struct altcp_pcb **pcb,
         //
         while (!(arg->connected))
             sleep_ms(HTTPS_ALTCP_CONNECT_POLL_INTERVAL_MS);
+        log_info("HTTP SYN-ACK packet received successfully");
     } else {
         log_warn("HTTP SYN packet sending failed");
     }
@@ -344,9 +331,8 @@ bool connect_to_host(ip_addr_t *ipaddr, struct altcp_pcb **pcb,
 
 // Send HTTP request
 bool send_request(struct altcp_pcb *pcb,
-                  struct altcp_callback_arg *callback_arg) {
-    const char request[] = HTTPS_WEATHER_REQUEST;
-
+                  struct altcp_callback_arg *callback_arg,
+                  const char *request) {
     // Check send buffer and queue length
     //
     //  Docs state that altcp_write() returns ERR_MEM on send buffer too small
@@ -360,7 +346,7 @@ bool send_request(struct altcp_pcb *pcb,
 
     // Write to send buffer
     cyw43_arch_lwip_begin();
-    lwip_err_t lwip_err = altcp_write(pcb, request, LEN(request) - 1, 0);
+    lwip_err_t lwip_err = altcp_write(pcb, request, strlen(request), 0);
     cyw43_arch_lwip_end();
 
     // Written to send buffer
@@ -381,7 +367,7 @@ bool send_request(struct altcp_pcb *pcb,
                  ++shots)
                 sleep_ms(HTTPS_HTTP_RESPONSE_POLL_INTERVAL_MS);
             if (shots == HTTPS_HTTP_RESPONSE_POLL_SHOTS ||
-                callback_arg->send_acknowledged_bytes != (LEN(request) - 1))
+                callback_arg->send_acknowledged_bytes != strlen(request))
                 lwip_err = -1;
         }
     }
