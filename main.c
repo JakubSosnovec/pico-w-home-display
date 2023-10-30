@@ -363,10 +363,10 @@ bool send_request(struct altcp_pcb *pcb,
             // Await acknowledgement
             unsigned shots = 0;
             for (; callback_arg->send_acknowledged_bytes == 0 &&
-                   shots < HTTPS_HTTP_RESPONSE_POLL_SHOTS;
+                   shots < HTTPS_HTTP_SEND_ACKNOWLEDGE_POLL_SHOTS;
                  ++shots)
-                sleep_ms(HTTPS_HTTP_RESPONSE_POLL_INTERVAL_MS);
-            if (shots == HTTPS_HTTP_RESPONSE_POLL_SHOTS ||
+                sleep_ms(HTTPS_HTTP_SEND_ACKNOWLEDGE_POLL_INTERVAL_MS);
+            if (shots == HTTPS_HTTP_SEND_ACKNOWLEDGE_POLL_SHOTS ||
                 callback_arg->send_acknowledged_bytes != strlen(request))
                 lwip_err = -1;
         }
