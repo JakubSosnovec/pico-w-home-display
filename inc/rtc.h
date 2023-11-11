@@ -1,4 +1,5 @@
+// Copyright 2023 Jakub Sosnovec
 #pragma once
 
-void set_rtc(const char *http_response);
+void set_rtc(void);
 void render_time(void);

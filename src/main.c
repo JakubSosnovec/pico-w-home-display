@@ -36,9 +36,9 @@ void main(void) {
     init_cyw43();
     lcd_init();
     rtc_init();
-    bool rtc_was_set = false; // Was RTC initialized to the current time?
 
     connect_to_wifi(WIFI_SSID, WIFI_PASSWORD);
+    set_rtc();
 
     struct connection_state *weather_connection =
         init_connection(HTTPS_WEATHER_HOSTNAME, WEATHER_TLS_ROOT_CERT,
@@ -51,18 +51,14 @@ void main(void) {
 
     // We update every 10 seconds
     while (true) {
+        render_time();
         if (query_connection(weather_connection)) {
-            if (!rtc_was_set) {
-                set_rtc(weather_connection->http_response);
-                rtc_was_set = true;
-            }
             render_weather(weather_connection->http_response);
         }
         if (query_connection(tram_connection)) {
             render_tram(tram_connection->http_response);
         }
 
-        render_time();
         sleep_ms(10000);
     }
 
