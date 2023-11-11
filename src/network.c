@@ -5,7 +5,6 @@
 #include "lwip/prot/iana.h" // HTTPS port number
 
 #include "log.h"
-#include "main.h"
 #include "network.h"
 
 // DNS response callback

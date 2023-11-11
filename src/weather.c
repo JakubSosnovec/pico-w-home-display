@@ -3,7 +3,6 @@
 #include "LCD_GUI.h"
 #include "LCD_Touch.h"
 
-#include "main.h"
 #include "network.h"
 #include "tiny-json.h"
 #include "weather.h"

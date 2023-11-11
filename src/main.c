@@ -5,13 +5,14 @@
 #include "LCD_GUI.h"
 #include "LCD_Touch.h"
 
-#include "main.h"
 #include "network.h"
 #include "rtc.h"
 #include "tram.h"
 #include "weather.h"
 
 #include "log.h"
+
+#define LEN(array) (sizeof array) / (sizeof array[0])
 
 static void lcd_init(void) {
     log_debug("Initializing LCD");
@@ -29,6 +30,13 @@ static void lcd_init(void) {
                      RED);
 }
 
+static bool timer_callback(repeating_timer_t* rt)
+{
+    void (*f)(void) = rt->user_data;
+    f();
+    return true; // keep repeating
+}
+
 void main(void) {
     stdio_usb_init();
     stdio_set_translate_crlf(&stdio_usb, true);
@@ -39,6 +47,13 @@ void main(void) {
 
     connect_to_wifi(WIFI_SSID, WIFI_PASSWORD);
     set_rtc();
+
+    // Refresh time every second
+    repeating_timer_t timer;
+    if (!add_repeating_timer_ms(1000, timer_callback, render_time, &timer)) {
+        log_fatal("Failed to add refresh timer");
+        return;
+    }
 
     struct connection_state *weather_connection =
         init_connection(HTTPS_WEATHER_HOSTNAME, WEATHER_TLS_ROOT_CERT,
@@ -51,7 +66,6 @@ void main(void) {
 
     // We update every 10 seconds
     while (true) {
-        render_time();
         if (query_connection(weather_connection)) {
             render_weather(weather_connection->http_response);
         }

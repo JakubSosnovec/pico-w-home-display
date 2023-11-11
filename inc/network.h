@@ -15,6 +15,8 @@ typedef err_t lwip_err_t;
 #define HTTPS_HTTP_SEND_ACKNOWLEDGE_POLL_SHOTS 20
 #define HTTPS_HTTP_RESPONSE_POLL_INTERVAL_MS 100
 
+#define MAX_JSON_FIELDS 200
+
 struct connection_state {
     const char *hostname;
     const char *cert;
