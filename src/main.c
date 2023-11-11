@@ -30,11 +30,15 @@ static void lcd_init(void) {
                      RED);
 }
 
-static bool timer_callback(repeating_timer_t* rt)
-{
+static bool timer_callback(repeating_timer_t *rt) {
     void (*f)(void) = rt->user_data;
     f();
     return true; // keep repeating
+}
+
+static void render_time_and_tram(void) {
+    render_time();
+    render_tram();
 }
 
 void main(void) {
@@ -48,13 +52,6 @@ void main(void) {
     connect_to_wifi(WIFI_SSID, WIFI_PASSWORD);
     set_rtc();
 
-    // Refresh time every second
-    repeating_timer_t timer;
-    if (!add_repeating_timer_ms(1000, timer_callback, render_time, &timer)) {
-        log_fatal("Failed to add refresh timer");
-        return;
-    }
-
     struct connection_state *weather_connection =
         init_connection(HTTPS_WEATHER_HOSTNAME, WEATHER_TLS_ROOT_CERT,
                         LEN(WEATHER_TLS_ROOT_CERT), HTTPS_WEATHER_REQUEST);
@@ -62,15 +59,34 @@ void main(void) {
         init_connection(HTTPS_TRAM_HOSTNAME, TRAM_TLS_ROOT_CERT,
                         LEN(TRAM_TLS_ROOT_CERT), HTTPS_TRAM_REQUEST);
 
+    init_tram();
+    init_weather();
+
+    // Refresh time and trams every second
+    repeating_timer_t timer_time_and_tram;
+    if (!add_repeating_timer_ms(1000, timer_callback, render_time_and_tram,
+                                &timer_time_and_tram)) {
+        log_fatal("Failed to add refresh timer");
+        return;
+    }
+
+    // Refresh weather every minute
+    repeating_timer_t timer_weather;
+    if (!add_repeating_timer_ms(60000, timer_callback, render_weather,
+                                &timer_weather)) {
+        log_fatal("Failed to add refresh timer");
+        return;
+    }
+
     // mbedtls_debug_set_threshold(5);
 
     // We update every 10 seconds
     while (true) {
         if (query_connection(weather_connection)) {
-            render_weather(weather_connection->http_response);
+            update_weather(weather_connection->http_response);
         }
         if (query_connection(tram_connection)) {
-            render_tram(tram_connection->http_response);
+            update_tram(tram_connection->http_response);
         }
 
         sleep_ms(10000);

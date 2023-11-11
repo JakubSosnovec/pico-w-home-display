@@ -1,5 +1,6 @@
 #include "hardware/rtc.h"
 #include "pico/stdlib.h"
+#include "pico/sync.h"
 #include "pico/util/datetime.h"
 
 #include "DEV_Config.h"
@@ -13,7 +14,48 @@
 
 #include <string.h>
 
-void render_tram(const char *http_response) {
+#define MAX_TRAM_LINE_STRING_LENGTH 40
+
+#define MAX_RECORDS_PER_LINE 4
+struct tram_state {
+    critical_section_t cs;
+    struct tm tram14[MAX_RECORDS_PER_LINE];
+    struct tm tram18[MAX_RECORDS_PER_LINE];
+    struct tm tram24[MAX_RECORDS_PER_LINE];
+};
+static struct tram_state state;
+
+static void fill_string_arrivals(char *str, size_t n, struct tm *current_tm,
+                                 struct tm *trams) {
+    size_t ind = 0;
+    for (size_t i = 0; i < MAX_RECORDS_PER_LINE && trams[i].tm_year != 0; ++i) {
+        struct tm diff_tm = {
+            .tm_year = trams[i].tm_year - current_tm->tm_year,
+            .tm_mon = trams[i].tm_mon - current_tm->tm_mon,
+            .tm_mday = trams[i].tm_mday - current_tm->tm_mday,
+            .tm_wday = trams[i].tm_wday - current_tm->tm_wday,
+            .tm_hour = trams[i].tm_hour - current_tm->tm_hour,
+            .tm_min = trams[i].tm_min - current_tm->tm_min,
+            .tm_sec = trams[i].tm_sec - current_tm->tm_sec,
+        };
+        mktime(&diff_tm);
+
+        // If the tram has already arrived, mktime will convert the negative
+        // difference into large minutes
+        if (diff_tm.tm_min >= 15)
+            break;
+
+        if (i != 0)
+            ind += snprintf(str + ind, n - ind, ", ");
+        if (diff_tm.tm_min != 0)
+            ind += snprintf(str + ind, n - ind, "%dm", diff_tm.tm_min);
+        ind += snprintf(str + ind, n - ind, "%ds", diff_tm.tm_sec);
+    }
+}
+
+void init_tram(void) { critical_section_init(&state.cs); }
+
+void update_tram(const char *http_response) {
     const char *json_start = strchr(http_response, '{'); // First occurence of {
     assert(json_start != NULL);
     const char *json_end = strrchr(http_response, '}'); // Last occurence of }
@@ -28,26 +70,17 @@ void render_tram(const char *http_response) {
     const json_t *json = json_create(json_response_str, pool, MAX_JSON_FIELDS);
     assert(json);
 
-    GUI_DrawRectangle(20, 140, 480, 170 + 24, WHITE, DRAW_FULL, DOT_PIXEL_DFT);
     const json_t *departures_field = json_getProperty(json, "departures");
     assert(json_getType(departures_field) == JSON_ARRAY);
 
-    struct tm tram14[10];
-    struct tm tram24[10];
-    memset(tram14, 0, sizeof(tram14));
-    memset(tram24, 0, sizeof(tram24));
     size_t tram14_index = 0;
+    size_t tram18_index = 0;
     size_t tram24_index = 0;
 
-    datetime_t t;
-    rtc_get_datetime(&t);
-    struct tm current_tm = {.tm_year = t.year,
-                            .tm_mon = t.month,
-                            .tm_mday = t.day,
-                            .tm_wday = t.dotw,
-                            .tm_hour = t.hour,
-                            .tm_min = t.min,
-                            .tm_sec = t.sec};
+    critical_section_enter_blocking(&state.cs);
+    memset(state.tram14, 0, sizeof(state.tram14));
+    memset(state.tram18, 0, sizeof(state.tram18));
+    memset(state.tram24, 0, sizeof(state.tram24));
 
     for (const json_t *departure_field = json_getChild(departures_field);
          departure_field != NULL;
@@ -73,47 +106,50 @@ void render_tram(const char *http_response) {
             if (predicted[i] == 'T')
                 predicted[i] = ' ';
         strptime(predicted, "%Y-%m-%d %T+01:00", &tm);
-        struct tm diff_tm = {
-            .tm_year = tm.tm_year - current_tm.tm_year,
-            .tm_mon = tm.tm_mon - current_tm.tm_mon,
-            .tm_mday = tm.tm_mday - current_tm.tm_mday,
-            .tm_wday = tm.tm_wday - current_tm.tm_wday,
-            .tm_hour = tm.tm_hour - current_tm.tm_hour,
-            .tm_min = tm.tm_min - current_tm.tm_min,
-            .tm_sec = tm.tm_sec - current_tm.tm_sec,
-        };
-        mktime(&diff_tm);
 
         if (strcmp(short_name, "14") == 0) {
-            tram14[tram14_index++] = diff_tm;
+            state.tram14[tram14_index++] = tm;
+        }
+        if (strcmp(short_name, "18") == 0) {
+            state.tram18[tram18_index++] = tm;
         }
         if (strcmp(short_name, "24") == 0) {
-            tram24[tram24_index++] = diff_tm;
+            state.tram24[tram24_index++] = tm;
         }
     }
+    critical_section_exit(&state.cs);
+}
 
+void render_tram(void) {
+    datetime_t t;
+    rtc_get_datetime(&t);
+    struct tm current_tm = {.tm_year = t.year,
+                            .tm_mon = t.month,
+                            .tm_mday = t.day,
+                            .tm_wday = t.dotw,
+                            .tm_hour = t.hour,
+                            .tm_min = t.min,
+                            .tm_sec = t.sec};
+
+    critical_section_enter_blocking(&state.cs);
+    GUI_DrawRectangle(20, 140, 480, 200 + 24, WHITE, DRAW_FULL, DOT_PIXEL_DFT);
     {
-        char outp_str[40] = "14: ";
-        size_t ind = 4;
-        for (size_t i = 0; i < tram14_index; ++i) {
-            if (i != 0)
-                ind += sprintf(outp_str + ind, ", ");
-            if (tram14[i].tm_min != 0)
-                ind += sprintf(outp_str + ind, "%dm", tram14[i].tm_min);
-            ind += sprintf(outp_str + ind, "%ds", tram14[i].tm_sec);
-        }
+        char outp_str[MAX_TRAM_LINE_STRING_LENGTH] = "14: ";
+        fill_string_arrivals(outp_str + 4, MAX_TRAM_LINE_STRING_LENGTH - 4,
+                             &current_tm, state.tram14);
         GUI_DisString_EN(20, 140, outp_str, &Font24, LCD_BACKGROUND, BLACK);
     }
     {
-        char outp_str[40] = "24: ";
-        size_t ind = 4;
-        for (size_t i = 0; i < tram24_index; ++i) {
-            if (i != 0)
-                ind += sprintf(outp_str + ind, ", ");
-            if (tram24[i].tm_min != 0)
-                ind += sprintf(outp_str + ind, "%dm", tram24[i].tm_min);
-            ind += sprintf(outp_str + ind, "%ds", tram24[i].tm_sec);
-        }
+        char outp_str[MAX_TRAM_LINE_STRING_LENGTH] = "18: ";
+        fill_string_arrivals(outp_str + 4, MAX_TRAM_LINE_STRING_LENGTH - 4,
+                             &current_tm, state.tram18);
         GUI_DisString_EN(20, 170, outp_str, &Font24, LCD_BACKGROUND, BLACK);
     }
+    {
+        char outp_str[MAX_TRAM_LINE_STRING_LENGTH] = "24: ";
+        fill_string_arrivals(outp_str + 4, MAX_TRAM_LINE_STRING_LENGTH - 4,
+                             &current_tm, state.tram24);
+        GUI_DisString_EN(20, 200, outp_str, &Font24, LCD_BACKGROUND, BLACK);
+    }
+    critical_section_exit(&state.cs);
 }

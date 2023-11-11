@@ -19,13 +19,13 @@
 #include "lwip/pbuf.h"
 #include "lwip/udp.h"
 
-#include "rtc.h"
 #include "log.h"
+#include "rtc.h"
 
+#include <stdatomic.h>
 #include <stdio.h>
 #include <string.h>
 #include <time.h>
-#include <stdatomic.h>
 
 // This file is taken almost completely from
 // https://github.com/raspberrypi/pico-examples/blob/master/pico_w/wifi/ntp_client/picow_ntp_client.c
@@ -50,8 +50,8 @@ static void ntp_result(NTP_T *state, int status, time_t *result) {
         struct tm tm;
         gmtime_r(result, &tm);
         log_info("Got NTP response: %02d/%02d/%04d %02d:%02d:%02d", tm.tm_mday,
-               tm.tm_mon + 1, tm.tm_year + 1900, tm.tm_hour, tm.tm_min,
-               tm.tm_sec);
+                 tm.tm_mon + 1, tm.tm_year + 1900, tm.tm_hour, tm.tm_min,
+                 tm.tm_sec);
 
         // Manual timezone fix, since doing this with plain libc is bloody
         // frustrating

@@ -1,3 +1,5 @@
+#include "pico/sync.h"
+
 #include "DEV_Config.h"
 #include "LCD_Driver.h"
 #include "LCD_GUI.h"
@@ -9,7 +11,18 @@
 
 #include <string.h>
 
-void render_weather(const char *http_response) {
+#define MAX_WEATHER_LINE_STRING_LENGTH 40
+
+struct weather_state {
+    critical_section_t cs;
+    double current_temp;
+    double max_daily_temp;
+};
+static struct weather_state state;
+
+void init_weather(void) { critical_section_init(&state.cs); }
+
+void update_weather(const char *http_response) {
     const char *json_start = strchr(http_response, '{'); // First occurence of {
     assert(json_start != NULL);
     const char *json_end = strrchr(http_response, '}'); // Last occurence of }
@@ -39,16 +52,24 @@ void render_weather(const char *http_response) {
         json_getChild(temperature_max_arr_field);
     assert(json_getType(temperature_max_field) == JSON_REAL);
 
-    char temperature_string[30];
-    sprintf(temperature_string, "Temperature now: %.1f C",
-            json_getReal(temperature_field));
-    char temperature_max_string[30];
-    sprintf(temperature_max_string, "Temperature max: %.1f C",
-            json_getReal(temperature_max_field));
+    critical_section_enter_blocking(&state.cs);
+    state.current_temp = json_getReal(temperature_field);
+    state.max_daily_temp = json_getReal(temperature_max_field);
+    critical_section_exit(&state.cs);
+}
 
-    // We first need to reset the LCD in the changed region
+void render_weather(void) {
+    critical_section_enter_blocking(&state.cs);
+    char temperature_string[MAX_WEATHER_LINE_STRING_LENGTH];
+    snprintf(temperature_string, MAX_WEATHER_LINE_STRING_LENGTH,
+             "Temp: %.1f C, max: %.1f C", state.current_temp,
+             state.max_daily_temp);
+    // Include the drawing in the critical section, to avoid interrupts during
+    // rendering We first need to reset the LCD in the changed region
     GUI_DrawRectangle(20, 80, 480, 110 + 24, WHITE, DRAW_FULL, DOT_PIXEL_DFT);
     GUI_DisString_EN(20, 80, temperature_string, &Font24, LCD_BACKGROUND, BLUE);
-    GUI_DisString_EN(20, 110, temperature_max_string, &Font24, LCD_BACKGROUND,
-                     BLUE);
+    // GUI_DisString_EN(20, 110, temperature_max_string, &Font24,
+    // LCD_BACKGROUND,
+    //                 BLUE);
+    critical_section_exit(&state.cs);
 }

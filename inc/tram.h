@@ -7,11 +7,6 @@
     "includeMetroTrains=false&airCondition=false&mode=departures&order=real&"  \
     "skip=canceled&limit=20&total=20&offset=0"
 
-#define HTTPS_WEATHER_REQUEST                                                  \
-    "GET " HTTPS_WEATHER_QUERY " HTTP/1.1\r\n"                                 \
-    "Host: " HTTPS_WEATHER_HOSTNAME "\r\n"                                     \
-    "\r\n"
-
 #define HTTPS_TRAM_REQUEST                                                     \
     "GET " HTTPS_TRAM_QUERY " HTTP/1.1\r\n"                                    \
     "Host: " HTTPS_TRAM_HOSTNAME "\r\n"                                        \
@@ -42,4 +37,6 @@ pLiaWN0bfVKfjllDiIGknibVb63dDcY3fe0Dkhvld1927jyNxF1WW6LZZm6zNTfl\n\
 MrY=\n\
 -----END CERTIFICATE-----\n"
 
-void render_tram(const char *http_response);
+void init_tram(void);
+void update_tram(const char *http_response);
+void render_tram(void);
