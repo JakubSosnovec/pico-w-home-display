@@ -25,62 +25,115 @@ void main(void) {
 
     connect_to_network();
     rtc_init();
+    bool rtc_initialized = false;
 
-    // Resolve server hostname
-    ip_addr_t weather_ipaddr;
-    char *weather_char_ipaddr;
+    // Resolve server hostnames
+    ip_addr_t weather_ipaddr, tram_ipaddr;
+    char *weather_char_ipaddr, *tram_char_ipaddr;
     resolve_hostname(&weather_ipaddr, &weather_char_ipaddr,
                      HTTPS_WEATHER_HOSTNAME);
+    resolve_hostname(&tram_ipaddr, &tram_char_ipaddr, HTTPS_GOLEMIO_HOSTNAME);
 
-    bool rtc_initialized = false;
-    struct altcp_callback_arg weather_callback_arg;
+    // These are big structs, so rather allocate on heap
+    struct altcp_callback_arg *weather_callback_arg =
+        malloc(sizeof(struct altcp_callback_arg));
     struct altcp_pcb *weather_pcb = NULL;
+    struct altcp_callback_arg *tram_callback_arg =
+        malloc(sizeof(struct altcp_callback_arg));
+    struct altcp_pcb *tram_pcb = NULL;
+    bool send_success;
+    // mbedtls_debug_set_threshold(5);
 
     // Establish new TCP + TLS connection with server
-    while (!connect_to_host(&weather_ipaddr, &weather_pcb,
-                            &weather_callback_arg)) {
+    while (!connect_to_host(&weather_ipaddr, &weather_pcb, weather_callback_arg,
+                            WEATHER)) {
+        sleep_ms(HTTPS_HTTP_RESPONSE_POLL_INTERVAL_MS);
+    }
+    while (!connect_to_host(&tram_ipaddr, &tram_pcb, tram_callback_arg, TRAM)) {
         sleep_ms(HTTPS_HTTP_RESPONSE_POLL_INTERVAL_MS);
     }
 
     // We update every 10 seconds
     while (true) {
-        weather_callback_arg.received_err = ERR_INPROGRESS;
-        const bool send_success = send_request(
-            weather_pcb, &weather_callback_arg, HTTPS_WEATHER_REQUEST);
+        // ---------------------- weather info
+        weather_callback_arg->received_err = ERR_INPROGRESS;
+        weather_callback_arg->http_response_offset = 0;
+        memset(weather_callback_arg->http_response, '\0',
+               HTTPS_RESPONSE_MAX_SIZE);
+        send_success = send_request(weather_pcb, weather_callback_arg,
+                                    HTTPS_WEATHER_REQUEST);
         if (!send_success) {
             log_warn("HTTP request sending failed");
         } else {
             // Await HTTP response
             log_debug("Awaiting HTTP response");
-            while (weather_callback_arg.received_err == ERR_INPROGRESS) {
+            while (weather_callback_arg->received_err == ERR_INPROGRESS) {
                 sleep_ms(HTTPS_HTTP_RESPONSE_POLL_INTERVAL_MS);
             }
             log_info("Got HTTP response");
         }
 
-        if (weather_callback_arg.received_err == ERR_OK) {
+        if (weather_callback_arg->received_err == ERR_OK) {
             if (!rtc_initialized) {
-                init_rtc(weather_callback_arg.http_response);
+                init_rtc(weather_callback_arg->http_response);
                 rtc_initialized = true;
             }
-            render_time();
-            render_temperature(weather_callback_arg.http_response);
+            render_weather(weather_callback_arg->http_response);
         } else {
             log_warn("Received HTTP response status is not OK. Closing HTTP "
                      "connection");
             // Close connection
             cyw43_arch_lwip_begin();
-            altcp_tls_free_config(weather_callback_arg.config);
+            altcp_tls_free_config(weather_callback_arg->config);
             altcp_close(weather_pcb);
             cyw43_arch_lwip_end();
 
             // Establish new TCP + TLS connection with server
             while (!connect_to_host(&weather_ipaddr, &weather_pcb,
-                                    &weather_callback_arg)) {
+                                    weather_callback_arg, WEATHER)) {
                 sleep_ms(HTTPS_HTTP_RESPONSE_POLL_INTERVAL_MS);
             }
+            continue;
         }
 
+        // ---------------------- tram info
+        tram_callback_arg->received_err = ERR_INPROGRESS;
+        tram_callback_arg->http_response_offset = 0;
+        memset(tram_callback_arg->http_response, '\0', HTTPS_RESPONSE_MAX_SIZE);
+        send_success =
+            send_request(tram_pcb, tram_callback_arg, HTTPS_GOLEMIO_REQUEST);
+        if (!send_success) {
+            log_warn("HTTP request sending failed");
+        } else {
+            // Await HTTP response
+            log_debug("Awaiting HTTP response");
+            while (tram_callback_arg->received_err == ERR_INPROGRESS) {
+                sleep_ms(HTTPS_HTTP_RESPONSE_POLL_INTERVAL_MS);
+            }
+            log_info("Got HTTP response");
+        }
+
+        if (tram_callback_arg->received_err == ERR_OK) {
+            render_tram(tram_callback_arg->http_response);
+        } else {
+            log_warn("Received HTTP response status is not OK. Closing HTTP "
+                     "connection");
+            // Close connection
+            cyw43_arch_lwip_begin();
+            altcp_tls_free_config(tram_callback_arg->config);
+            altcp_close(tram_pcb);
+            cyw43_arch_lwip_end();
+
+            // Establish new TCP + TLS connection with server
+            while (!connect_to_host(&tram_ipaddr, &tram_pcb, tram_callback_arg,
+                                    TRAM)) {
+                sleep_ms(HTTPS_HTTP_RESPONSE_POLL_INTERVAL_MS);
+            }
+            continue;
+        }
+
+        // ---------------------- render time & sleep
+        render_time();
         sleep_ms(10000);
     }
 
@@ -134,29 +187,21 @@ void render_time(void) {
     GUI_DisString_EN(20, 50, datetime_str, &Font24, LCD_BACKGROUND, BLACK);
 }
 
-void render_temperature(const char *http_response) {
-    // Parse HTTP chunk size
-    const char *chunk_size_str_begin = strstr(http_response, "\r\n\r\n");
-    assert(chunk_size_str_begin);
-    chunk_size_str_begin += 4;
-    const char *chunk_size_str_end = strstr(chunk_size_str_begin, "\r\n");
-    assert(chunk_size_str_end);
-    unsigned chunk_size_len = chunk_size_str_end - chunk_size_str_begin;
-    // For strtol, we need a null-terminated string...
-    char chunk_size_str[10];
-    memset(chunk_size_str, '\0', sizeof(chunk_size_str));
-    memcpy(chunk_size_str, chunk_size_str_begin, chunk_size_len);
-    int chunk_size = strtol(chunk_size_str, NULL, 16);
+void render_weather(const char *http_response) {
+    const char *json_start = strchr(http_response, '{'); // First occurence of {
+    assert(json_start != NULL);
+    const char *json_end = strrchr(http_response, '}'); // Last occurence of }
+    assert(json_end != NULL);
 
     // Create null-terminated string with just JSON
-    const char *json_response_begin = chunk_size_str_end + 2;
     char json_response_str[HTTPS_RESPONSE_MAX_SIZE];
     memset(json_response_str, '\0', sizeof(json_response_str));
-    memcpy(json_response_str, json_response_begin, chunk_size);
+    memcpy(json_response_str, json_start, json_end - json_start + 1);
 
     json_t pool[MAX_JSON_FIELDS];
     const json_t *json = json_create(json_response_str, pool, MAX_JSON_FIELDS);
     assert(json);
+
     const json_t *current_weather_field =
         json_getProperty(json, "current_weather");
     assert(json_getType(current_weather_field) == JSON_OBJ);
@@ -184,6 +229,109 @@ void render_temperature(const char *http_response) {
     GUI_DisString_EN(20, 80, temperature_string, &Font24, LCD_BACKGROUND, BLUE);
     GUI_DisString_EN(20, 110, temperature_max_string, &Font24, LCD_BACKGROUND,
                      BLUE);
+}
+
+void render_tram(const char *http_response) {
+    const char *json_start = strchr(http_response, '{'); // First occurence of {
+    assert(json_start != NULL);
+    const char *json_end = strrchr(http_response, '}'); // Last occurence of }
+    assert(json_end != NULL);
+
+    // Create null-terminated string with just JSON
+    char json_response_str[HTTPS_RESPONSE_MAX_SIZE];
+    memset(json_response_str, '\0', sizeof(json_response_str));
+    memcpy(json_response_str, json_start, json_end - json_start + 1);
+
+    json_t pool[MAX_JSON_FIELDS];
+    const json_t *json = json_create(json_response_str, pool, MAX_JSON_FIELDS);
+    assert(json);
+
+    GUI_DrawRectangle(20, 140, 480, 170 + 24, WHITE, DRAW_FULL, DOT_PIXEL_DFT);
+    const json_t *departures_field = json_getProperty(json, "departures");
+    assert(json_getType(departures_field) == JSON_ARRAY);
+
+    struct tm tram14[10];
+    struct tm tram24[10];
+    memset(tram14, 0, sizeof(tram14));
+    memset(tram24, 0, sizeof(tram24));
+    unsigned tram14_index = 0;
+    unsigned tram24_index = 0;
+
+    datetime_t t;
+    rtc_get_datetime(&t);
+    struct tm current_tm = {.tm_year = t.year,
+                            .tm_mon = t.month,
+                            .tm_mday = t.day,
+                            .tm_wday = t.dotw,
+                            .tm_hour = t.hour,
+                            .tm_min = t.min,
+                            .tm_sec = t.sec};
+
+    for (const json_t *departure_field = json_getChild(departures_field);
+         departure_field != NULL;
+         departure_field = json_getSibling(departure_field)) {
+        assert(json_getType(departure_field) == JSON_OBJ);
+        const json_t *route_field = json_getProperty(departure_field, "route");
+        assert(json_getType(route_field) == JSON_OBJ);
+        const json_t *short_name_field =
+            json_getProperty(route_field, "short_name");
+        assert(json_getType(short_name_field) == JSON_TEXT);
+        const char *short_name = json_getValue(short_name_field);
+        const json_t *arrival_field =
+            json_getProperty(departure_field, "arrival_timestamp");
+        assert(json_getType(arrival_field) == JSON_OBJ);
+        const json_t *predicted_field =
+            json_getProperty(arrival_field, "predicted");
+        assert(json_getType(predicted_field) == JSON_TEXT);
+        char *predicted = (char*)json_getValue(predicted_field);
+
+        struct tm tm;
+        memset(&tm, 0, sizeof(tm));
+        for (unsigned i = 0; i < strlen(predicted); ++i)
+            if (predicted[i] == 'T')
+                predicted[i] = ' ';
+        strptime(predicted, "%Y-%m-%d %T+01:00", &tm);
+        struct tm diff_tm = {
+            .tm_year = tm.tm_year - current_tm.tm_year,
+            .tm_mon = tm.tm_mon - current_tm.tm_mon,
+            .tm_mday = tm.tm_mday - current_tm.tm_mday,
+            .tm_wday = tm.tm_wday - current_tm.tm_wday,
+            .tm_hour = tm.tm_hour - current_tm.tm_hour,
+            .tm_min = tm.tm_min - current_tm.tm_min,
+            .tm_sec = tm.tm_sec - current_tm.tm_sec,
+        };
+        mktime(&diff_tm);
+
+        if (strcmp(short_name, "14") == 0) {
+            tram14[tram14_index++] = diff_tm;
+        }
+        if (strcmp(short_name, "24") == 0) {
+            tram24[tram24_index++] = diff_tm;
+        }
+    }
+
+    {
+        char outp_str[25] = "14| ";
+        unsigned ind = 4;
+        for(unsigned i = 0; i < tram14_index; ++i)
+        {
+            if(i != 0)
+                ind += sprintf(outp_str + ind, ", ");
+            ind += sprintf(outp_str + ind, "%d:%02d", tram14[i].tm_min, tram14[i].tm_sec);
+        }
+        GUI_DisString_EN(20, 140, outp_str, &Font24, LCD_BACKGROUND, BLACK);
+    }
+    {
+        char outp_str[25] = "24| ";
+        unsigned ind = 4;
+        for(unsigned i = 0; i < tram24_index; ++i)
+        {
+            if(i != 0)
+                ind += sprintf(outp_str + ind, ", ");
+            ind += sprintf(outp_str + ind, "%d:%02d", tram24[i].tm_min, tram24[i].tm_sec);
+        }
+        GUI_DisString_EN(20, 170, outp_str, &Font24, LCD_BACKGROUND, BLACK);
+    }
 }
 
 void init_lcd(void) {
@@ -260,12 +408,18 @@ void resolve_hostname(ip_addr_t *ipaddr, char **char_ipaddr,
 
 // Establish TCP + TLS connection with server
 bool connect_to_host(ip_addr_t *ipaddr, struct altcp_pcb **pcb,
-                     struct altcp_callback_arg *arg) {
+                     struct altcp_callback_arg *arg, int type) {
     log_debug("Connecting to port %d", LWIP_IANA_PORT_HTTPS);
-    const u8_t cert[] = TLS_ROOT_CERT;
     cyw43_arch_lwip_begin();
-    struct altcp_tls_config *config =
-        altcp_tls_create_config_client(cert, LEN(cert));
+
+    struct altcp_tls_config *config;
+    if (type == WEATHER) {
+        const u8_t cert[] = WEATHER_TLS_ROOT_CERT;
+        config = altcp_tls_create_config_client(cert, LEN(cert));
+    } else if (type == TRAM) {
+        const u8_t cert[] = TRAM_TLS_ROOT_CERT;
+        config = altcp_tls_create_config_client(cert, LEN(cert));
+    }
     cyw43_arch_lwip_end();
     if (!config) {
         log_fatal("create_config_client failed");
@@ -335,9 +489,10 @@ bool send_request(struct altcp_pcb *pcb,
                   const char *request) {
     // Check send buffer and queue length
     //
-    //  Docs state that altcp_write() returns ERR_MEM on send buffer too small
-    //  _or_ send queue too long. Could either check both before calling
-    //  altcp_write, or just handle returned ERR_MEM — which is preferable?
+    //  Docs state that altcp_write() returns ERR_MEM on send buffer too
+    //  small _or_ send queue too long. Could either check both before
+    //  calling altcp_write, or just handle returned ERR_MEM — which is
+    //  preferable?
     //
     // if(
     //  altcp_sndbuf(pcb) < (LEN(request) - 1)
@@ -388,7 +543,7 @@ void callback_gethostbyname(const char *name, const ip_addr_t *resolved,
 // TCP + TLS connection error callback
 void callback_altcp_err(void *arg, lwip_err_t err) {
     // Print error code
-    log_fatal("Connection error [lwip_err_t err == %d]", err);
+    log_error("Connection error [lwip_err_t err == %d]", err);
 }
 
 // TCP + TLS connection idle callback
@@ -411,15 +566,20 @@ lwip_err_t callback_altcp_recv(void *arg, struct altcp_pcb *pcb,
     struct pbuf *head = buf;
 
     log_trace("Received HTTP response:");
-    if (err == ERR_OK && head) {
-        assert(head->tot_len < HTTPS_RESPONSE_MAX_SIZE);
-        memset(callback_arg->http_response, '\0', HTTPS_RESPONSE_MAX_SIZE);
-        unsigned j = 0;
+    if (err == ERR_OK) {
+        if(head == NULL || head->tot_len == 0)
+            return ERR_OK;
+
+        assert(callback_arg->http_response_offset + head->tot_len <
+               HTTPS_RESPONSE_MAX_SIZE);
         while (buf) {
-            for (unsigned i = 0; i < buf->len; ++i, ++j) {
+            for (unsigned i = 0; i < buf->len; ++i) {
                 putchar(((char *)buf->payload)[i]);
-                callback_arg->http_response[j] = ((char *)buf->payload)[i];
+                callback_arg
+                    ->http_response[callback_arg->http_response_offset + i] =
+                    ((char *)buf->payload)[i];
             }
+            callback_arg->http_response_offset += buf->len;
             buf = buf->next;
         }
 
@@ -428,9 +588,21 @@ lwip_err_t callback_altcp_recv(void *arg, struct altcp_pcb *pcb,
 
         // Free buf
         pbuf_free(head); // Free entire pbuf chain
-    }
 
-    callback_arg->received_err = err;
+        // If the number of { and } are the same in the response, this is
+        // the last chunk
+        unsigned left = 0, right = 0;
+        for (unsigned i = 0; i < callback_arg->http_response_offset; ++i) {
+            if (callback_arg->http_response[i] == '{')
+                ++left;
+            if (callback_arg->http_response[i] == '}')
+                ++right;
+        }
+        if (left == right)
+            callback_arg->received_err = err;
+    } else {
+        callback_arg->received_err = err;
+    }
     return ERR_OK;
 }
 

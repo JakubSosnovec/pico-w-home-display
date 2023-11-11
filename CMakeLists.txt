@@ -40,7 +40,9 @@ target_compile_definitions(
           WIFI_PASSWORD=\"${WIFI_PASSWORD}\"
           GOLEMIO_API_KEY=\"${GOLEMIO_API_KEY}\"
           PICO_STDIO_USB_CONNECT_WAIT_TIMEOUT_MS=3000
-          ALTCP_MBEDTLS_AUTHMODE=MBEDTLS_SSL_VERIFY_REQUIRED)
+          ALTCP_MBEDTLS_AUTHMODE=MBEDTLS_SSL_VERIFY_REQUIRED
+          PICO_HEAP_SIZE=40960
+          PICO_STACK_SIZE=40960)
 target_include_directories(
   weather_display PRIVATE ${CMAKE_CURRENT_LIST_DIR}
                           ${CMAKE_CURRENT_LIST_DIR}/log

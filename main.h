@@ -12,12 +12,12 @@ typedef err_t lwip_err_t;
     "forecast?latitude=50.07&longitude=14.42&current_weather=true&daily="      \
     "temperature_2m_max&timezone=auto&forecast_days=1"
 
-#define HTTPS_GOLEMIO_HOSTNAME "https://api.golemio.cz"
+#define HTTPS_GOLEMIO_HOSTNAME "api.golemio.cz"
 #define HTTPS_GOLEMIO_QUERY                                                    \
     "/v2/pid/"                                                                 \
-    "departureboards?ids=U876Z1P&minutesBefore=0&minutesAfter=60&"             \
+    "departureboards?ids=U876Z1P&minutesBefore=0&minutesAfter=15&"             \
     "includeMetroTrains=false&airCondition=false&mode=departures&order=real&"  \
-    "filter=none&skip=canceled&limit=10&total=10&offset=0"
+    "skip=canceled&limit=20&total=20&offset=0"
 
 #define HTTPS_WEATHER_REQUEST                                                  \
     "GET " HTTPS_WEATHER_QUERY " HTTP/1.1\r\n"                                 \
@@ -30,7 +30,7 @@ typedef err_t lwip_err_t;
     "X-Access-Token: " GOLEMIO_API_KEY "\r\n"                                  \
     "\r\n"
 
-#define HTTPS_RESPONSE_MAX_SIZE 4096
+#define HTTPS_RESPONSE_MAX_SIZE (8 * 1024)
 #define HTTPS_RESOLVE_POLL_INTERVAL_MS 100
 #define HTTPS_ALTCP_CONNECT_POLL_INTERVAL_MS 100
 #define HTTPS_ALTCP_IDLE_POLL_SHOTS 2
@@ -38,9 +38,9 @@ typedef err_t lwip_err_t;
 #define HTTPS_HTTP_SEND_ACKNOWLEDGE_POLL_SHOTS 20
 #define HTTPS_HTTP_RESPONSE_POLL_INTERVAL_MS 100
 
-#define MAX_JSON_FIELDS 50
+#define MAX_JSON_FIELDS 200
 
-#define TLS_ROOT_CERT                                                          \
+#define WEATHER_TLS_ROOT_CERT                                                  \
     "-----BEGIN CERTIFICATE-----\n\
 MIIFazCCA1OgAwIBAgIRAIIQz7DSQONZRGPgu2OCiwAwDQYJKoZIhvcNAQELBQAw\n\
 TzELMAkGA1UEBhMCVVMxKTAnBgNVBAoTIEludGVybmV0IFNlY3VyaXR5IFJlc2Vh\n\
@@ -73,37 +73,52 @@ mRGunUHBcnWEvgJBQl9nJEiU0Zsnvgc/ubhPgXRR4Xq37Z0j4r7g1SgEEzwxA57d\n\
 emyPxgcYxn/eR44/KJ4EBs+lVDR3veyJm+kXQ99b21/+jh5Xos1AnX5iItreGCc=\n\
 -----END CERTIFICATE-----\n"
 
+#define TRAM_TLS_ROOT_CERT                                                     \
+    "-----BEGIN CERTIFICATE-----\n\
+MIIDjjCCAnagAwIBAgIQAzrx5qcRqaC7KGSxHQn65TANBgkqhkiG9w0BAQsFADBh\n\
+MQswCQYDVQQGEwJVUzEVMBMGA1UEChMMRGlnaUNlcnQgSW5jMRkwFwYDVQQLExB3\n\
+d3cuZGlnaWNlcnQuY29tMSAwHgYDVQQDExdEaWdpQ2VydCBHbG9iYWwgUm9vdCBH\n\
+MjAeFw0xMzA4MDExMjAwMDBaFw0zODAxMTUxMjAwMDBaMGExCzAJBgNVBAYTAlVT\n\
+MRUwEwYDVQQKEwxEaWdpQ2VydCBJbmMxGTAXBgNVBAsTEHd3dy5kaWdpY2VydC5j\n\
+b20xIDAeBgNVBAMTF0RpZ2lDZXJ0IEdsb2JhbCBSb290IEcyMIIBIjANBgkqhkiG\n\
+9w0BAQEFAAOCAQ8AMIIBCgKCAQEAuzfNNNx7a8myaJCtSnX/RrohCgiN9RlUyfuI\n\
+2/Ou8jqJkTx65qsGGmvPrC3oXgkkRLpimn7Wo6h+4FR1IAWsULecYxpsMNzaHxmx\n\
+1x7e/dfgy5SDN67sH0NO3Xss0r0upS/kqbitOtSZpLYl6ZtrAGCSYP9PIUkY92eQ\n\
+q2EGnI/yuum06ZIya7XzV+hdG82MHauVBJVJ8zUtluNJbd134/tJS7SsVQepj5Wz\n\
+tCO7TG1F8PapspUwtP1MVYwnSlcUfIKdzXOS0xZKBgyMUNGPHgm+F6HmIcr9g+UQ\n\
+vIOlCsRnKPZzFBQ9RnbDhxSJITRNrw9FDKZJobq7nMWxM4MphQIDAQABo0IwQDAP\n\
+BgNVHRMBAf8EBTADAQH/MA4GA1UdDwEB/wQEAwIBhjAdBgNVHQ4EFgQUTiJUIBiV\n\
+5uNu5g/6+rkS7QYXjzkwDQYJKoZIhvcNAQELBQADggEBAGBnKJRvDkhj6zHd6mcY\n\
+1Yl9PMWLSn/pvtsrF9+wX3N3KjITOYFnQoQj8kVnNeyIv/iPsGEMNKSuIEyExtv4\n\
+NeF22d+mQrvHRAiGfzZ0JFrabA0UWTW98kndth/Jsw1HKj2ZL7tcu7XUIOGZX1NG\n\
+Fdtom/DzMNU+MeKNhJ7jitralj41E6Vf8PlwUHBHQRFXGU7Aj64GxJUTFy8bJZ91\n\
+8rGOmaFvE7FBcf6IKshPECBV1/MUReXgRPTqh5Uykw7+U0b6LJ3/iyK5S9kJRaTe\n\
+pLiaWN0bfVKfjllDiIGknibVb63dDcY3fe0Dkhvld1927jyNxF1WW6LZZm6zNTfl\n\
+MrY=\n\
+-----END CERTIFICATE-----\n"
+
+enum HTTPS_TYPE { TRAM, WEATHER };
+
 #define LEN(array) (sizeof array) / (sizeof array[0])
 
-// TCP connection callback argument
-//
-//  All callbacks associated with lwIP TCP (+ TLS) connections can be passed a
-//  common argument. This is intended to allow application state to be accessed
-//  from within the callback context. The argument should be registered with
-//  altcp_arg().
-//
-//  The following structure is used for this argument in order to supply all
-//  the relevant application state required by the various callbacks.
-//
-//  https://www.nongnu.org/lwip/2_1_x/group__altcp.html
-//
 struct altcp_callback_arg {
     struct altcp_tls_config *config;
     atomic_bool connected;
     atomic_uint send_acknowledged_bytes;
     _Atomic lwip_err_t received_err;
     char http_response[HTTPS_RESPONSE_MAX_SIZE];
+    unsigned http_response_offset;
 };
 
 void init_stdio(void);
 void init_cyw43(void);
 void init_lcd(void);
-void connect_to_network(void);
+void connect_to_network();
 
 void resolve_hostname(ip_addr_t *ipaddr, char **char_ipaddr,
                       const char *hostname);
 bool connect_to_host(ip_addr_t *ipaddr, struct altcp_pcb **pcb,
-                     struct altcp_callback_arg *arg);
+                     struct altcp_callback_arg *arg, int type);
 bool send_request(struct altcp_pcb *pcb,
                   struct altcp_callback_arg *callback_arg, const char *request);
 void callback_gethostbyname(const char *name, const ip_addr_t *resolved,
@@ -117,5 +132,6 @@ lwip_err_t callback_altcp_connect(void *arg, struct altcp_pcb *pcb,
                                   lwip_err_t err);
 
 void init_rtc(const char *http_response);
-void render_temperature(const char *http_response);
+void render_weather(const char *http_response);
+void render_tram(const char *http_response);
 void render_time(void);
