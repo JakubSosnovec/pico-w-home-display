@@ -12,8 +12,8 @@ typedef err_t lwip_err_t;
     "forecast?latitude=50.07&longitude=14.42&current_weather=true&daily="      \
     "temperature_2m_max&timezone=auto&forecast_days=1"
 
-#define HTTPS_GOLEMIO_HOSTNAME "api.golemio.cz"
-#define HTTPS_GOLEMIO_QUERY                                                    \
+#define HTTPS_TRAM_HOSTNAME "api.golemio.cz"
+#define HTTPS_TRAM_QUERY                                                       \
     "/v2/pid/"                                                                 \
     "departureboards?ids=U876Z1P&minutesBefore=0&minutesAfter=15&"             \
     "includeMetroTrains=false&airCondition=false&mode=departures&order=real&"  \
@@ -24,9 +24,9 @@ typedef err_t lwip_err_t;
     "Host: " HTTPS_WEATHER_HOSTNAME "\r\n"                                     \
     "\r\n"
 
-#define HTTPS_GOLEMIO_REQUEST                                                  \
-    "GET " HTTPS_GOLEMIO_QUERY " HTTP/1.1\r\n"                                 \
-    "Host: " HTTPS_GOLEMIO_HOSTNAME "\r\n"                                     \
+#define HTTPS_TRAM_REQUEST                                                     \
+    "GET " HTTPS_TRAM_QUERY " HTTP/1.1\r\n"                                    \
+    "Host: " HTTPS_TRAM_HOSTNAME "\r\n"                                        \
     "X-Access-Token: " GOLEMIO_API_KEY "\r\n"                                  \
     "\r\n"
 
@@ -97,12 +97,16 @@ pLiaWN0bfVKfjllDiIGknibVb63dDcY3fe0Dkhvld1927jyNxF1WW6LZZm6zNTfl\n\
 MrY=\n\
 -----END CERTIFICATE-----\n"
 
-enum HTTPS_TYPE { TRAM, WEATHER };
-
 #define LEN(array) (sizeof array) / (sizeof array[0])
 
-struct altcp_callback_arg {
+struct connection_state {
+    const char* hostname;
+    const char* cert;
+    size_t cert_len;
+    const char* request;
     struct altcp_tls_config *config;
+    struct altcp_pcb *pcb;
+    ip_addr_t ipaddr;
     atomic_bool connected;
     atomic_uint send_acknowledged_bytes;
     _Atomic lwip_err_t received_err;
@@ -110,17 +114,19 @@ struct altcp_callback_arg {
     unsigned http_response_offset;
 };
 
-void init_stdio(void);
+void stdio_init(void);
 void init_cyw43(void);
-void init_lcd(void);
-void connect_to_network();
+void lcd_init(void);
 
-void resolve_hostname(ip_addr_t *ipaddr, char **char_ipaddr,
-                      const char *hostname);
-bool connect_to_host(ip_addr_t *ipaddr, struct altcp_pcb **pcb,
-                     struct altcp_callback_arg *arg, int type);
-bool send_request(struct altcp_pcb *pcb,
-                  struct altcp_callback_arg *callback_arg, const char *request);
+void connect_to_wifi(const char *ssid, const char *passwd);
+
+struct connection_state *init_connection(const char* hostname, const char* cert, size_t cert_len, const char* request);
+bool query_connection(struct connection_state* connection);
+
+void resolve_hostname(ip_addr_t *ipaddr, const char *hostname);
+bool connect_to_host(struct connection_state *connection);
+bool send_request(struct connection_state *connection);
+
 void callback_gethostbyname(const char *name, const ip_addr_t *resolved,
                             void *ipaddr);
 void callback_altcp_err(void *arg, lwip_err_t err);

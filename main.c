@@ -19,125 +19,96 @@
 #include "tiny-json.h"
 
 void main(void) {
-    init_stdio();
+    stdio_init();
     init_cyw43();
-    init_lcd();
-
-    connect_to_network();
+    lcd_init();
     rtc_init();
-    bool rtc_initialized = false;
+    bool rtc_was_set = false; // Was RTC initialized to the current time?
 
-    // Resolve server hostnames
-    ip_addr_t weather_ipaddr, tram_ipaddr;
-    char *weather_char_ipaddr, *tram_char_ipaddr;
-    resolve_hostname(&weather_ipaddr, &weather_char_ipaddr,
-                     HTTPS_WEATHER_HOSTNAME);
-    resolve_hostname(&tram_ipaddr, &tram_char_ipaddr, HTTPS_GOLEMIO_HOSTNAME);
+    connect_to_wifi(WIFI_SSID, WIFI_PASSWORD);
 
-    // These are big structs, so rather allocate on heap
-    struct altcp_callback_arg *weather_callback_arg =
-        malloc(sizeof(struct altcp_callback_arg));
-    struct altcp_pcb *weather_pcb = NULL;
-    struct altcp_callback_arg *tram_callback_arg =
-        malloc(sizeof(struct altcp_callback_arg));
-    struct altcp_pcb *tram_pcb = NULL;
-    bool send_success;
+    struct connection_state *weather_connection = init_connection(HTTPS_WEATHER_HOSTNAME, WEATHER_TLS_ROOT_CERT, LEN(WEATHER_TLS_ROOT_CERT), HTTPS_WEATHER_REQUEST);
+    struct connection_state *tram_connection = init_connection(HTTPS_TRAM_HOSTNAME, TRAM_TLS_ROOT_CERT, LEN(TRAM_TLS_ROOT_CERT), HTTPS_TRAM_REQUEST);
+
     // mbedtls_debug_set_threshold(5);
-
-    // Establish new TCP + TLS connection with server
-    while (!connect_to_host(&weather_ipaddr, &weather_pcb, weather_callback_arg,
-                            WEATHER)) {
-        sleep_ms(HTTPS_HTTP_RESPONSE_POLL_INTERVAL_MS);
-    }
-    while (!connect_to_host(&tram_ipaddr, &tram_pcb, tram_callback_arg, TRAM)) {
-        sleep_ms(HTTPS_HTTP_RESPONSE_POLL_INTERVAL_MS);
-    }
 
     // We update every 10 seconds
     while (true) {
-        // ---------------------- weather info
-        weather_callback_arg->received_err = ERR_INPROGRESS;
-        weather_callback_arg->http_response_offset = 0;
-        memset(weather_callback_arg->http_response, '\0',
-               HTTPS_RESPONSE_MAX_SIZE);
-        send_success = send_request(weather_pcb, weather_callback_arg,
-                                    HTTPS_WEATHER_REQUEST);
-        if (!send_success) {
-            log_warn("HTTP request sending failed");
-        } else {
-            // Await HTTP response
-            log_debug("Awaiting HTTP response");
-            while (weather_callback_arg->received_err == ERR_INPROGRESS) {
-                sleep_ms(HTTPS_HTTP_RESPONSE_POLL_INTERVAL_MS);
+        if(query_connection(weather_connection))
+        {
+            if (!rtc_was_set) {
+                init_rtc(weather_connection->http_response);
+                rtc_was_set = true;
             }
-            log_info("Got HTTP response");
+            render_weather(weather_connection->http_response);
+        }
+        if(query_connection(tram_connection))
+        {
+            render_tram(tram_connection->http_response);
         }
 
-        if (weather_callback_arg->received_err == ERR_OK) {
-            if (!rtc_initialized) {
-                init_rtc(weather_callback_arg->http_response);
-                rtc_initialized = true;
-            }
-            render_weather(weather_callback_arg->http_response);
-        } else {
-            log_warn("Received HTTP response status is not OK. Closing HTTP "
-                     "connection");
-            // Close connection
-            cyw43_arch_lwip_begin();
-            altcp_tls_free_config(weather_callback_arg->config);
-            altcp_close(weather_pcb);
-            cyw43_arch_lwip_end();
-
-            // Establish new TCP + TLS connection with server
-            while (!connect_to_host(&weather_ipaddr, &weather_pcb,
-                                    weather_callback_arg, WEATHER)) {
-                sleep_ms(HTTPS_HTTP_RESPONSE_POLL_INTERVAL_MS);
-            }
-            continue;
-        }
-
-        // ---------------------- tram info
-        tram_callback_arg->received_err = ERR_INPROGRESS;
-        tram_callback_arg->http_response_offset = 0;
-        memset(tram_callback_arg->http_response, '\0', HTTPS_RESPONSE_MAX_SIZE);
-        send_success =
-            send_request(tram_pcb, tram_callback_arg, HTTPS_GOLEMIO_REQUEST);
-        if (!send_success) {
-            log_warn("HTTP request sending failed");
-        } else {
-            // Await HTTP response
-            log_debug("Awaiting HTTP response");
-            while (tram_callback_arg->received_err == ERR_INPROGRESS) {
-                sleep_ms(HTTPS_HTTP_RESPONSE_POLL_INTERVAL_MS);
-            }
-            log_info("Got HTTP response");
-        }
-
-        if (tram_callback_arg->received_err == ERR_OK) {
-            render_tram(tram_callback_arg->http_response);
-        } else {
-            log_warn("Received HTTP response status is not OK. Closing HTTP "
-                     "connection");
-            // Close connection
-            cyw43_arch_lwip_begin();
-            altcp_tls_free_config(tram_callback_arg->config);
-            altcp_close(tram_pcb);
-            cyw43_arch_lwip_end();
-
-            // Establish new TCP + TLS connection with server
-            while (!connect_to_host(&tram_ipaddr, &tram_pcb, tram_callback_arg,
-                                    TRAM)) {
-                sleep_ms(HTTPS_HTTP_RESPONSE_POLL_INTERVAL_MS);
-            }
-            continue;
-        }
-
-        // ---------------------- render time & sleep
         render_time();
         sleep_ms(10000);
     }
 
     return;
+}
+
+struct connection_state *init_connection(const char* hostname, const char* cert, size_t cert_len, const char* request)
+{
+    // These are big structs, so rather allocate on heap
+    struct connection_state *connection =
+        malloc(sizeof(struct connection_state));
+    connection->hostname = hostname;
+    connection->cert = cert;
+    connection->cert_len = cert_len;
+    connection->request = request;
+    connection->pcb = NULL;
+
+    resolve_hostname(&connection->ipaddr, hostname);
+    return connection;
+}
+
+bool query_connection(struct connection_state* connection)
+{
+    if(!connection->pcb)
+    {
+        // Establish new TCP + TLS connection with server
+        while (!connect_to_host(connection)) {
+            sleep_ms(HTTPS_HTTP_RESPONSE_POLL_INTERVAL_MS);
+        }
+    }
+
+    connection->received_err = ERR_INPROGRESS;
+    connection->http_response_offset = 0;
+    memset(connection->http_response, '\0', HTTPS_RESPONSE_MAX_SIZE);
+    bool send_success =
+        send_request(connection);
+    if (!send_success) {
+        log_warn("HTTP request sending failed");
+    } else {
+        // Await HTTP response
+        log_debug("Awaiting HTTP response");
+        while (connection->received_err == ERR_INPROGRESS) {
+            sleep_ms(HTTPS_HTTP_RESPONSE_POLL_INTERVAL_MS);
+        }
+        log_info("Got HTTP response");
+    }
+
+    if (connection->received_err == ERR_OK) {
+        return true;
+    } else {
+        log_warn(
+            "Received HTTP response status is not OK. Closing HTTP "
+            "connection");
+        // Close connection
+        cyw43_arch_lwip_begin();
+        altcp_tls_free_config(connection->config);
+        altcp_close(connection->pcb);
+        cyw43_arch_lwip_end();
+        connection->pcb = NULL;
+        return false;
+    }
 }
 
 void init_rtc(const char *http_response) {
@@ -148,7 +119,7 @@ void init_rtc(const char *http_response) {
     datetime_ptr += strlen(datetime_tag);
     const char *end_ptr = strstr(http_response, end_tag);
     assert(end_ptr);
-    unsigned n = end_ptr - datetime_ptr;
+    size_t n = end_ptr - datetime_ptr;
 
     char datetime_str[40];
     memset(datetime_str, '\0', 40);
@@ -254,8 +225,8 @@ void render_tram(const char *http_response) {
     struct tm tram24[10];
     memset(tram14, 0, sizeof(tram14));
     memset(tram24, 0, sizeof(tram24));
-    unsigned tram14_index = 0;
-    unsigned tram24_index = 0;
+    size_t tram14_index = 0;
+    size_t tram24_index = 0;
 
     datetime_t t;
     rtc_get_datetime(&t);
@@ -283,11 +254,11 @@ void render_tram(const char *http_response) {
         const json_t *predicted_field =
             json_getProperty(arrival_field, "predicted");
         assert(json_getType(predicted_field) == JSON_TEXT);
-        char *predicted = (char*)json_getValue(predicted_field);
+        char *predicted = (char *)json_getValue(predicted_field);
 
         struct tm tm;
         memset(&tm, 0, sizeof(tm));
-        for (unsigned i = 0; i < strlen(predicted); ++i)
+        for (size_t i = 0; i < strlen(predicted); ++i)
             if (predicted[i] == 'T')
                 predicted[i] = ' ';
         strptime(predicted, "%Y-%m-%d %T+01:00", &tm);
@@ -312,29 +283,31 @@ void render_tram(const char *http_response) {
 
     {
         char outp_str[25] = "14| ";
-        unsigned ind = 4;
-        for(unsigned i = 0; i < tram14_index; ++i)
-        {
-            if(i != 0)
+        size_t ind = 4;
+        for (size_t i = 0; i < tram14_index; ++i) {
+            if (i != 0)
                 ind += sprintf(outp_str + ind, ", ");
-            ind += sprintf(outp_str + ind, "%d:%02d", tram14[i].tm_min, tram14[i].tm_sec);
+            if(tram14[i].tm_min != 0)
+                ind += sprintf(outp_str + ind, "%dm", tram14[i].tm_min);
+            ind += sprintf(outp_str + ind, "%ds", tram14[i].tm_sec);
         }
         GUI_DisString_EN(20, 140, outp_str, &Font24, LCD_BACKGROUND, BLACK);
     }
     {
         char outp_str[25] = "24| ";
-        unsigned ind = 4;
-        for(unsigned i = 0; i < tram24_index; ++i)
-        {
-            if(i != 0)
+        size_t ind = 4;
+        for (size_t i = 0; i < tram24_index; ++i) {
+            if (i != 0)
                 ind += sprintf(outp_str + ind, ", ");
-            ind += sprintf(outp_str + ind, "%d:%02d", tram24[i].tm_min, tram24[i].tm_sec);
+            if(tram24[i].tm_min != 0)
+                ind += sprintf(outp_str + ind, "%dm", tram24[i].tm_min);
+            ind += sprintf(outp_str + ind, "%ds", tram24[i].tm_sec);
         }
         GUI_DisString_EN(20, 170, outp_str, &Font24, LCD_BACKGROUND, BLACK);
     }
 }
 
-void init_lcd(void) {
+void lcd_init(void) {
     log_debug("Initializing LCD");
     DEV_GPIO_Init();
     spi_init(SPI_PORT, 4000000);
@@ -351,7 +324,7 @@ void init_lcd(void) {
 }
 
 // Initialise standard I/O over USB
-void init_stdio(void) {
+void stdio_init(void) {
     stdio_usb_init();
     stdio_set_translate_crlf(&stdio_usb, true);
 }
@@ -363,19 +336,18 @@ void init_cyw43(void) {
 }
 
 // Connect to wireless network
-void connect_to_network(void) {
-    log_debug("Connecting to wireless network %s", WIFI_SSID);
+void connect_to_wifi(const char *ssid, const char *passwd) {
+    log_debug("Connecting to wireless network %s with password %s", ssid,
+              passwd);
     cyw43_arch_lwip_begin();
     cyw43_arch_enable_sta_mode();
-    cyw43_arch_wifi_connect_timeout_ms(WIFI_SSID, WIFI_PASSWORD,
-                                       CYW43_AUTH_WPA2_AES_PSK,
+    cyw43_arch_wifi_connect_timeout_ms(ssid, passwd, CYW43_AUTH_WPA2_AES_PSK,
                                        HTTPS_WIFI_TIMEOUT_MS);
     cyw43_arch_lwip_end();
 }
 
 // Resolve hostname
-void resolve_hostname(ip_addr_t *ipaddr, char **char_ipaddr,
-                      const char *hostname) {
+void resolve_hostname(ip_addr_t *ipaddr, const char *hostname) {
     log_debug("Resolving %s", hostname);
     ipaddr->addr = IPADDR_ANY;
 
@@ -401,25 +373,19 @@ void resolve_hostname(ip_addr_t *ipaddr, char **char_ipaddr,
 
     // Convert to ip_addr_t
     cyw43_arch_lwip_begin();
-    *char_ipaddr = ipaddr_ntoa(ipaddr);
+    char *char_ipaddr = ipaddr_ntoa(ipaddr);
     cyw43_arch_lwip_end();
-    log_info("Resolved %s (%s)", hostname, *char_ipaddr);
+    log_info("Resolved %s (%s)", hostname, char_ipaddr);
 }
 
 // Establish TCP + TLS connection with server
-bool connect_to_host(ip_addr_t *ipaddr, struct altcp_pcb **pcb,
-                     struct altcp_callback_arg *arg, int type) {
+bool connect_to_host(struct connection_state *connection)
+{
     log_debug("Connecting to port %d", LWIP_IANA_PORT_HTTPS);
     cyw43_arch_lwip_begin();
 
     struct altcp_tls_config *config;
-    if (type == WEATHER) {
-        const u8_t cert[] = WEATHER_TLS_ROOT_CERT;
-        config = altcp_tls_create_config_client(cert, LEN(cert));
-    } else if (type == TRAM) {
-        const u8_t cert[] = TRAM_TLS_ROOT_CERT;
-        config = altcp_tls_create_config_client(cert, LEN(cert));
-    }
+    config = altcp_tls_create_config_client(connection->cert, connection->cert_len);
     cyw43_arch_lwip_end();
     if (!config) {
         log_fatal("create_config_client failed");
@@ -427,39 +393,39 @@ bool connect_to_host(ip_addr_t *ipaddr, struct altcp_pcb **pcb,
     }
 
     cyw43_arch_lwip_begin();
-    *pcb = altcp_tls_new(config, IPADDR_TYPE_V4);
+    connection->pcb = altcp_tls_new(config, IPADDR_TYPE_V4);
     cyw43_arch_lwip_end();
-    assert(*pcb);
+    assert(connection->pcb);
 
-    arg->config = config;
-    arg->connected = false;
+    connection->config = config;
+    connection->connected = false;
     cyw43_arch_lwip_begin();
-    altcp_arg(*pcb, (void *)arg);
+    altcp_arg(connection->pcb, (void *)connection);
     cyw43_arch_lwip_end();
 
     // Configure connection fatal error callback
     cyw43_arch_lwip_begin();
-    altcp_err(*pcb, callback_altcp_err);
+    altcp_err(connection->pcb, callback_altcp_err);
     cyw43_arch_lwip_end();
 
     // Configure idle connection callback (and interval)
     cyw43_arch_lwip_begin();
-    altcp_poll(*pcb, callback_altcp_poll, HTTPS_ALTCP_IDLE_POLL_SHOTS);
+    altcp_poll(connection->pcb, callback_altcp_poll, HTTPS_ALTCP_IDLE_POLL_SHOTS);
     cyw43_arch_lwip_end();
 
     // Configure data acknowledge callback
     cyw43_arch_lwip_begin();
-    altcp_sent(*pcb, callback_altcp_sent);
+    altcp_sent(connection->pcb, callback_altcp_sent);
     cyw43_arch_lwip_end();
 
     // Configure data reception callback
     cyw43_arch_lwip_begin();
-    altcp_recv(*pcb, callback_altcp_recv);
+    altcp_recv(connection->pcb, callback_altcp_recv);
     cyw43_arch_lwip_end();
 
     // Send connection request (SYN)
     cyw43_arch_lwip_begin();
-    lwip_err_t lwip_err = altcp_connect(*pcb, ipaddr, LWIP_IANA_PORT_HTTPS,
+    lwip_err_t lwip_err = altcp_connect(connection->pcb, &connection->ipaddr, LWIP_IANA_PORT_HTTPS,
                                         callback_altcp_connect);
     cyw43_arch_lwip_end();
 
@@ -472,7 +438,7 @@ bool connect_to_host(ip_addr_t *ipaddr, struct altcp_pcb **pcb,
         //  Sucessful connection will be confirmed shortly in
         //  callback_altcp_connect.
         //
-        while (!(arg->connected))
+        while (!(connection->connected))
             sleep_ms(HTTPS_ALTCP_CONNECT_POLL_INTERVAL_MS);
         log_info("HTTP SYN-ACK packet received successfully");
     } else {
@@ -484,45 +450,32 @@ bool connect_to_host(ip_addr_t *ipaddr, struct altcp_pcb **pcb,
 }
 
 // Send HTTP request
-bool send_request(struct altcp_pcb *pcb,
-                  struct altcp_callback_arg *callback_arg,
-                  const char *request) {
-    // Check send buffer and queue length
-    //
-    //  Docs state that altcp_write() returns ERR_MEM on send buffer too
-    //  small _or_ send queue too long. Could either check both before
-    //  calling altcp_write, or just handle returned ERR_MEM — which is
-    //  preferable?
-    //
-    // if(
-    //  altcp_sndbuf(pcb) < (LEN(request) - 1)
-    //  || altcp_sndqueuelen(pcb) > TCP_SND_QUEUELEN
-    //) return -1;
-
+bool send_request(struct connection_state *connection)
+{
     // Write to send buffer
     cyw43_arch_lwip_begin();
-    lwip_err_t lwip_err = altcp_write(pcb, request, strlen(request), 0);
+    lwip_err_t lwip_err = altcp_write(connection->pcb, connection->request, strlen(connection->request), 0);
     cyw43_arch_lwip_end();
 
     // Written to send buffer
     if (lwip_err == ERR_OK) {
 
         // Output send buffer
-        callback_arg->send_acknowledged_bytes = 0;
+        connection->send_acknowledged_bytes = 0;
         cyw43_arch_lwip_begin();
-        lwip_err = altcp_output(pcb);
+        lwip_err = altcp_output(connection->pcb);
         cyw43_arch_lwip_end();
 
         // Send buffer output
         if (lwip_err == ERR_OK) {
             // Await acknowledgement
             unsigned shots = 0;
-            for (; callback_arg->send_acknowledged_bytes == 0 &&
+            for (; connection->send_acknowledged_bytes == 0 &&
                    shots < HTTPS_HTTP_SEND_ACKNOWLEDGE_POLL_SHOTS;
                  ++shots)
                 sleep_ms(HTTPS_HTTP_SEND_ACKNOWLEDGE_POLL_INTERVAL_MS);
             if (shots == HTTPS_HTTP_SEND_ACKNOWLEDGE_POLL_SHOTS ||
-                callback_arg->send_acknowledged_bytes != strlen(request))
+                connection->send_acknowledged_bytes != strlen(connection->request))
                 lwip_err = -1;
         }
     }
@@ -554,32 +507,32 @@ lwip_err_t callback_altcp_poll(void *arg, struct altcp_pcb *pcb) {
 
 // TCP + TLS data acknowledgement callback
 lwip_err_t callback_altcp_sent(void *arg, struct altcp_pcb *pcb, u16_t len) {
-    struct altcp_callback_arg *callback_arg = (struct altcp_callback_arg *)arg;
-    callback_arg->send_acknowledged_bytes = len;
+    struct connection_state *connection = (struct connection_state *)arg;
+    connection->send_acknowledged_bytes = len;
     return ERR_OK;
 }
 
 // TCP + TLS data reception callback
 lwip_err_t callback_altcp_recv(void *arg, struct altcp_pcb *pcb,
                                struct pbuf *buf, lwip_err_t err) {
-    struct altcp_callback_arg *callback_arg = (struct altcp_callback_arg *)arg;
+    struct connection_state *connection = (struct connection_state *)arg;
     struct pbuf *head = buf;
 
     log_trace("Received HTTP response:");
     if (err == ERR_OK) {
-        if(head == NULL || head->tot_len == 0)
+        if (head == NULL || head->tot_len == 0)
             return ERR_OK;
 
-        assert(callback_arg->http_response_offset + head->tot_len <
+        assert(connection->http_response_offset + head->tot_len <
                HTTPS_RESPONSE_MAX_SIZE);
         while (buf) {
-            for (unsigned i = 0; i < buf->len; ++i) {
+            for (size_t i = 0; i < buf->len; ++i) {
                 putchar(((char *)buf->payload)[i]);
-                callback_arg
-                    ->http_response[callback_arg->http_response_offset + i] =
+                connection
+                    ->http_response[connection->http_response_offset + i] =
                     ((char *)buf->payload)[i];
             }
-            callback_arg->http_response_offset += buf->len;
+            connection->http_response_offset += buf->len;
             buf = buf->next;
         }
 
@@ -591,17 +544,17 @@ lwip_err_t callback_altcp_recv(void *arg, struct altcp_pcb *pcb,
 
         // If the number of { and } are the same in the response, this is
         // the last chunk
-        unsigned left = 0, right = 0;
-        for (unsigned i = 0; i < callback_arg->http_response_offset; ++i) {
-            if (callback_arg->http_response[i] == '{')
+        size_t left = 0, right = 0;
+        for (size_t i = 0; i < connection->http_response_offset; ++i) {
+            if (connection->http_response[i] == '{')
                 ++left;
-            if (callback_arg->http_response[i] == '}')
+            if (connection->http_response[i] == '}')
                 ++right;
         }
         if (left == right)
-            callback_arg->received_err = err;
+            connection->received_err = err;
     } else {
-        callback_arg->received_err = err;
+        connection->received_err = err;
     }
     return ERR_OK;
 }
@@ -609,7 +562,7 @@ lwip_err_t callback_altcp_recv(void *arg, struct altcp_pcb *pcb,
 // TCP + TLS connection establishment callback
 lwip_err_t callback_altcp_connect(void *arg, struct altcp_pcb *pcb,
                                   lwip_err_t err) {
-    struct altcp_callback_arg *callback_arg = (struct altcp_callback_arg *)arg;
-    callback_arg->connected = true;
+    struct connection_state *connection = (struct connection_state *)arg;
+    connection->connected = true;
     return ERR_OK;
 }
