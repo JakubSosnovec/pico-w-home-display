@@ -3,8 +3,9 @@
 #define HTTPS_WEATHER_HOSTNAME "api.open-meteo.com"
 #define HTTPS_WEATHER_QUERY                                                    \
     "/v1/"                                                                     \
-    "forecast?latitude=50.07&longitude=14.42&current_weather=true&daily="      \
-    "temperature_2m_max&timezone=auto&forecast_days=1"
+    "forecast?latitude=50.07&longitude=14.42&current=temperature_2m,"          \
+    "precipitation&daily="                                                     \
+    "temperature_2m_max,precipitation_sum&timezone=auto&forecast_days=1"
 
 #define HTTPS_WEATHER_REQUEST                                                  \
     "GET " HTTPS_WEATHER_QUERY " HTTP/1.1\r\n"                                 \

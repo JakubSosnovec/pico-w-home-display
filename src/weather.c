@@ -17,6 +17,8 @@ struct weather_state {
     critical_section_t cs;
     double current_temp;
     double max_daily_temp;
+    double current_precipitation;
+    double precipitation_sum;
 };
 static struct weather_state state;
 
@@ -37,24 +39,34 @@ void update_weather(const char *http_response) {
     const json_t *json = json_create(json_response_str, pool, MAX_JSON_FIELDS);
     assert(json);
 
-    const json_t *current_weather_field =
-        json_getProperty(json, "current_weather");
+    const json_t *current_weather_field = json_getProperty(json, "current");
     assert(json_getType(current_weather_field) == JSON_OBJ);
     const json_t *temperature_field =
-        json_getProperty(current_weather_field, "temperature");
+        json_getProperty(current_weather_field, "temperature_2m");
     assert(json_getType(temperature_field) == JSON_REAL);
+    const json_t *precipitation_field =
+        json_getProperty(current_weather_field, "precipitation");
+    assert(json_getType(precipitation_field) == JSON_REAL);
     const json_t *daily_field = json_getProperty(json, "daily");
     assert(json_getType(daily_field) == JSON_OBJ);
     const json_t *temperature_max_arr_field =
         json_getProperty(daily_field, "temperature_2m_max");
     assert(json_getType(temperature_max_arr_field) == JSON_ARRAY);
+    const json_t *precipitation_sum_arr_field =
+        json_getProperty(daily_field, "precipitation_sum");
+    assert(json_getType(precipitation_sum_arr_field) == JSON_ARRAY);
     const json_t *temperature_max_field =
         json_getChild(temperature_max_arr_field);
     assert(json_getType(temperature_max_field) == JSON_REAL);
+    const json_t *precipitation_sum_field =
+        json_getChild(precipitation_sum_arr_field);
+    assert(json_getType(precipitation_sum_field) == JSON_REAL);
 
     critical_section_enter_blocking(&state.cs);
     state.current_temp = json_getReal(temperature_field);
     state.max_daily_temp = json_getReal(temperature_max_field);
+    state.current_precipitation = json_getReal(precipitation_field);
+    state.precipitation_sum = json_getReal(precipitation_sum_field);
     critical_section_exit(&state.cs);
 }
 
@@ -64,12 +76,15 @@ void render_weather(void) {
     snprintf(temperature_string, MAX_WEATHER_LINE_STRING_LENGTH,
              "Temp: %.1f C, max: %.1f C", state.current_temp,
              state.max_daily_temp);
+    char precipitation_string[MAX_WEATHER_LINE_STRING_LENGTH];
+    snprintf(precipitation_string, MAX_WEATHER_LINE_STRING_LENGTH,
+             "Rain: %.1f mm, sum: %.1f mm", state.current_precipitation,
+             state.precipitation_sum);
     // Include the drawing in the critical section, to avoid interrupts during
     // rendering We first need to reset the LCD in the changed region
     GUI_DrawRectangle(20, 80, 480, 110 + 24, WHITE, DRAW_FULL, DOT_PIXEL_DFT);
     GUI_DisString_EN(20, 80, temperature_string, &Font24, LCD_BACKGROUND, BLUE);
-    // GUI_DisString_EN(20, 110, temperature_max_string, &Font24,
-    // LCD_BACKGROUND,
-    //                 BLUE);
+    GUI_DisString_EN(20, 110, precipitation_string, &Font24, LCD_BACKGROUND,
+                     BLUE);
     critical_section_exit(&state.cs);
 }
